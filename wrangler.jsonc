@@ -1,0 +1,15 @@
+{
+  "name": "swiss-market",
+  "main": "server/worker.ts",
+  "compatibility_date": "2025-10-01",
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"],
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "ROOMS", "class_name": "MarketRoom" }],
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["MarketRoom"] }],
+}

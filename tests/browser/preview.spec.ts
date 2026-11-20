@@ -1,0 +1,31 @@
+import { test } from "@playwright/test";
+import { newGame, player } from "../../game/model";
+import { M } from "../../game/board";
+test("vorschau mobil", async ({ page }, info) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const anna = player("anna", "Anna", 0), ben = player("ben", "Ben", 1, "Mittel");
+  anna.cash = ben.cash = 500 * M;
+  const game = newGame(anna);
+  game.players.push(ben);
+  game.phase = "roll";
+  game.round = 1;
+  game.settings.limit = 0;
+  await page.goto("/");
+  await page.evaluate(async (state) => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => { const request = indexedDB.open("keyval-store", 1); request.onupgradeneeded = () => request.result.createObjectStore("keyval"); request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
+    await new Promise<void>((resolve) => { const tx = db.transaction("keyval", "readwrite"); tx.objectStore("keyval").put(state, "swiss-market:local:v1"); tx.oncomplete = () => resolve(); });
+    db.close();
+    localStorage.setItem("sm-mode", "local");
+    localStorage.setItem("sm-board-style", "photos");
+  }, game);
+  await page.reload();
+  await page.waitForTimeout(2500);
+  await page.screenshot({ path: info.outputPath("mobil-tisch.png") });
+  await page.getByRole("button", { name: "Test Casino" }).click();
+  await page.getByRole("button", { name: "Annehmen & ins Casino" }).click({ timeout: 15000 });
+  await page.getByRole("button", { name: "Teilnehmen", exact: true }).click();
+  await page.getByLabel("Dein Einsatz (in M)").fill("2");
+  await page.getByRole("button", { name: "Setzen" }).click();
+  await page.waitForTimeout(4500);
+  await page.screenshot({ path: info.outputPath("mobil-casino.png") });
+});

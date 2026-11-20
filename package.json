@@ -1,0 +1,49 @@
+{
+  "name": "swiss-market",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "dev:online": "npm run build && wrangler dev",
+    "test": "tsx --test tests/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "build": "tsc --noEmit && vite build",
+    "deploy": "npm run build && wrangler deploy",
+    "test:browser": "playwright test"
+  },
+  "dependencies": {
+    "@fontsource-variable/manrope": "^5.2.0",
+    "@fontsource/barlow-condensed": "^5.2.0",
+    "@react-three/drei": "^10.7.0",
+    "@react-three/fiber": "^9.3.0",
+    "@tailwindcss/vite": "^4.1.0",
+    "idb-keyval": "^6.2.2",
+    "lucide-react": "^0.468.0",
+    "motion": "^12.23.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "tailwindcss": "^4.1.0",
+    "three": "^0.180.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261119.1",
+    "@eslint/js": "^9.36.0",
+    "@playwright/test": "^1.55.0",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@types/three": "^0.180.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "esbuild": "^0.28.2",
+    "eslint": "^9.36.0",
+    "miniflare": "^5.20261118.0-beta",
+    "tsx": "^4.20.0",
+    "typescript": "~5.9.0",
+    "typescript-eslint": "^8.45.0",
+    "vite": "^7.1.0",
+    "wrangler": "^4.45.0"
+  }
+}
