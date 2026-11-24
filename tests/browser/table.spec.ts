@@ -148,6 +148,66 @@ test("Pflichtzahlung: Wischen mit Greif-Cursor, Bestätigung und Geldflug", asyn
   await expect(hand.locator(".ledger-row").first()).toContainText("−80M");
 });
 
+test("Zahlung ohne Deckung: keine Frist, Beleihen, dann 10 Sekunden zum Bezahlen", async ({ page }, info) => {
+  const game = table(90);
+  game.phase = "debt";
+  game.players[0].cash = 10 * M;
+  game.assets[1].owner = game.assets[3].owner = "anna";
+  game.debt = { amount: 40 * M, to: "ben", reason: "Miete Bell" };
+  game.deadline = 0;
+  await loadLocal(page, game);
+  const hand = phone(page);
+  await expect(hand.getByRole("heading", { name: "Finanzierung" })).toBeVisible();
+  await expect(hand).toContainText("KEINE FRIST");
+  await expect(hand.getByRole("timer")).toHaveCount(0);
+  await expect(hand.getByRole("button", { name: "Bank finanzieren lassen" })).toBeVisible();
+  await hand.screenshot({ path: info.outputPath("finanzierung.png") });
+  await hand.locator(".finance-row").filter({ hasText: "Logitech" }).getByRole("button", { name: /Beleihen/ }).click();
+  await expect(hand.getByRole("heading", { name: "Finanzierung" })).toBeVisible();
+  await expect(hand.getByRole("timer")).toHaveCount(0);
+  await hand.locator(".finance-row").filter({ hasText: "Swisscom" }).getByRole("button", { name: /Beleihen/ }).click();
+  await expect(hand.getByRole("heading", { name: "Banküberweisung" })).toBeVisible();
+  await expect(hand.getByRole("timer")).toContainText(/Frist (9|10) s/);
+  await swipe(page);
+  await expect(hand.getByText("Zahlung ausgeführt")).toBeVisible();
+  await hand.getByRole("button", { name: "Portfolio", exact: true }).click();
+  await expect(hand.locator(".holding").filter({ hasText: "Logitech" })).toContainText("fällig in 5 Runden (R6)");
+});
+test("Mitspieler sehen live, wie ein Bot Geld für eine Zahlung beschafft", async ({ page }, info) => {
+  const game = table();
+  game.turn = 1;
+  game.phase = "debt";
+  game.players[1].cash = 10 * M;
+  game.assets[1].owner = game.assets[3].owner = "ben";
+  game.debt = { amount: 40 * M, to: "anna", reason: "Miete Swatch" };
+  game.deadline = 0;
+  await loadLocal(page, game);
+  const box = phone(page).locator(".funding-box");
+  await expect(box).toContainText("Ben beschafft Geld");
+  await expect(page.locator(".table-tag")).toContainText("Ben beschafft Geld für eine Zahlung");
+  await expect(box.locator("li").first()).toContainText(/beleiht (Logitech|Swisscom)/);
+  await box.screenshot({ path: info.outputPath("geldbeschaffung.png") });
+  await expect(phone(page).locator("[data-balance]")).toHaveText("540M CHF", { timeout: 8000 });
+});
+test("Darlehen: Erinnerung im Handy eine Runde vor Fälligkeit", async ({ page }) => {
+  const game = table();
+  game.round = 4;
+  game.assets[3].owner = "anna";
+  game.assets[3].loan = 18 * M;
+  game.assets[3].due = 5;
+  await loadLocal(page, game);
+  const alert = phone(page).locator(".loan-alert");
+  await expect(alert).toContainText("Darlehen bald fällig");
+  await expect(alert).toContainText("Swisscom: 19.8M · fällig nächste Runde (R5)");
+  await alert.getByRole("button", { name: /Swisscom/ }).click();
+  const card = page.getByRole("dialog", { name: "Swisscom" });
+  await expect(card).toContainText("Rückzahlung");
+  await card.getByRole("button", { name: /^Darlehen tilgen/ }).click();
+  await expect(phone(page).getByRole("heading", { name: "Banküberweisung" })).toBeVisible();
+  await swipe(page);
+  await expect(phone(page).locator(".loan-alert")).toHaveCount(0, { timeout: 6000 });
+});
+
 test("Kauf: ohne genug Geld nur Passen, sonst Überweisung und Besitz", async ({ page }, info) => {
   const game = table();
   game.players[0].cash = 5 * M;
@@ -195,6 +255,8 @@ test("Ausbau sofort ohne Zahlungsseite, Sterne, kein Handel mit ausgebauter Bran
   game.assets[6].levels = [20.7 * M];
   game.assets[8].levels = [22.5 * M];
   game.assets[9].levels = [24.3 * M];
+  game.assets[11].owner = "ben";
+  game.assets[11].levels = [25 * M, 25 * M];
   await loadLocal(page, game);
   await fixedDice(page);
   await page.getByRole("button", { name: "Feld 3: Swisscom", exact: true }).click();
@@ -203,7 +265,14 @@ test("Ausbau sofort ohne Zahlungsseite, Sterne, kein Handel mit ausgebauter Bran
   await expect(phone(page).getByRole("heading", { name: "Banküberweisung" })).toHaveCount(0);
   await expect(card).toContainText("1 Geldstapel");
   await expect(card.getByRole("button", { name: /Stufe verkaufen|An Bank verkaufen/ })).toHaveCount(0);
-  await expect(page.locator('button[aria-label="Feld 3: Swisscom"] .tile-stars')).toHaveText("★");
+  const stars = page.locator('.flat-level[data-tile="3"]');
+  await expect(stars).toHaveText("★");
+  const starBox = (await stars.boundingBox())!, tileBox = (await page.getByRole("button", { name: "Feld 3: Swisscom", exact: true }).boundingBox())!;
+  expect(starBox.y + starBox.height).toBeLessThanOrEqual(tileBox.y + 1);
+  await expect(page.locator('.flat-level[data-tile="11"]')).toHaveText("★★");
+  const side = (await page.locator('.flat-level[data-tile="11"]').boundingBox())!, bell = (await page.getByRole("button", { name: "Feld 11: Bell Food Group", exact: true }).boundingBox())!;
+  expect(side.x).toBeGreaterThanOrEqual(bell.x + bell.width - 1);
+  await page.locator(".photo-board").screenshot({ path: info.outputPath("sterne.png") });
   await expect(card.getByRole("button", { name: /^Ausbauen/ })).toBeDisabled();
   await card.screenshot({ path: info.outputPath("ausbau.png") });
   await page.keyboard.press("Escape");
@@ -250,6 +319,27 @@ test("Lobby zeigt alle Regeln inklusive Bauregeln", async ({ page }) => {
   await expect(hand.getByRole("checkbox", { name: "Gleichmässig bauen" })).toBeChecked();
   await hand.getByRole("checkbox", { name: "Ein Ausbau je Branche und Runde" }).click();
   await expect(hand.getByRole("checkbox", { name: "Ein Ausbau je Branche und Runde" })).toBeChecked();
+  const term = hand.getByRole("combobox", { name: "Darlehensfrist" });
+  await expect(term).toHaveValue("5");
+  await term.selectOption("8");
+  await expect(term).toHaveValue("8");
+});
+
+test("Online: Verbindungsabbruch zeigt Overlay, sperrt Eingaben und verschwindet nach Wiederverbindung", async ({ page }, info) => {
+  await page.goto("/");
+  await phone(page).getByRole("button", { name: "Lobby erstellen", exact: true }).click();
+  await page.getByLabel("Gastname").fill("Anna");
+  await page.getByRole("button", { name: "Lobby eröffnen" }).click();
+  await expect(page.getByTitle("Einladungslink kopieren")).toBeVisible();
+  await page.context().setOffline(true);
+  const overlay = page.getByRole("alertdialog", { name: "Verbindung verloren" });
+  await expect(overlay).toBeVisible();
+  await expect(overlay).toContainText(/Neuer Versuch in \d+ s|Verbinde neu/);
+  await expect(page.locator(".device-frame")).toHaveAttribute("inert", "");
+  await overlay.screenshot({ path: info.outputPath("verbindung.png") });
+  await page.context().setOffline(false);
+  await expect(overlay).toHaveCount(0, { timeout: 15000 });
+  await expect(phone(page).getByRole("button", { name: "Bereit melden" })).toBeEnabled();
 });
 
 test("Handel: Vorschlag, Karten anzeigen, Anfrage und Rückkehr zur Liste", async ({ page }, info) => {
@@ -287,7 +377,7 @@ test("Handel: Vorschlag, Karten anzeigen, Anfrage und Rückkehr zur Liste", asyn
   await expect(system.last()).toContainText("Swisscom");
   await hand.getByRole("button", { name: "Portfolio", exact: true }).click();
   await expect(hand.locator(".worth-grid")).toContainText("Bargeld");
-  await expect(hand.locator(".extra-card")).toContainText("30M");
+  await expect(hand.locator(".extra-card")).toContainText("60M");
   await expect(hand.locator(".holding").first().locator(".trend")).toBeVisible();
 });
 

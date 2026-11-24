@@ -172,7 +172,7 @@ export class MarketRoom extends DurableObject<Env> {
     if (s.phase === "over") data.finished ??= now;
     const bot = !s.paused && actor(s, now);
     const quick = bot && ["CASINO_ENTER", "CASINO_JOIN", "PLACE_CASINO_BET"].includes(bot.cmd.type);
-    data.botAt = bot ? (data.botAt > now ? data.botAt : now + (quick ? 450 : 1050)) : 0;
+    data.botAt = bot ? (data.botAt > now ? data.botAt : now + (quick ? 450 : 800)) : 0;
     if (bot && ["ROLL_DICE", "BUY_COMPANY", "DECLINE"].includes(bot.cmd.type))
       data.botAt = Math.max(data.botAt, botReadyAt(s));
     const due = [

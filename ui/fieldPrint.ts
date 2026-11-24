@@ -1,4 +1,4 @@
-import { M, tokenColors, type Tile } from "../game/board";
+import { M, taxes, tokenColors, type Tile } from "../game/board";
 
 type Plate = {
   paper: string;
@@ -195,3 +195,6 @@ export const fieldAmount = (value: number) => {
   const millions = value / M;
   return millions >= 1000 ? `${(millions / 1000).toLocaleString("de-CH", { maximumFractionDigits: 1 })}B` : `${millions.toLocaleString("de-CH", { maximumFractionDigits: 1 })}M`;
 };
+/** Preisaufdruck eines Felds; Steuerfelder zeigen ihren Prozentsatz. */
+export const fieldPrice = (tile: Tile, value: number) =>
+  taxes[tile.id] ? `${taxes[tile.id].bps / 100} %` : fieldAmount(value);

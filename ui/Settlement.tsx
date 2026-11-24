@@ -1,7 +1,8 @@
 import {useEffect,useRef,useState,type ReactNode} from "react";
 import {ArrowRight, Building2, Check, ChevronsRight} from "lucide-react";
 import {motion} from "motion/react";
-import {board,M,money,rate} from "../game/board";
+import {board,money,rate} from "../game/board";
+import {couponCap} from "../game/cards";
 import {members,buildPrice,buildBlock,refundShare} from "../game/economy";
 import type {View} from "../game/view";
 import type {Command} from "../game/model";
@@ -25,7 +26,7 @@ export type PayRequest = { amount: number; reason: string; to: string; cmd: Comm
 export type Receipt = { amount: number; reason: string; to: string };
 export function PurchaseOffer({v,send}:{v:View;send:Sender}) {
   const tile=board[v.players[v.turn].pos],value=v.assets[tile.id].value,logo=companyLogo(tile);
-  const coupon=v.own.cards.includes("C22"),discounted=value-Math.min(10*M,rate(value,1500)),short=v.own.cash<value;
+  const coupon=v.own.cards.includes("C22"),discounted=value-Math.min(couponCap,rate(value,1500)),short=v.own.cash<value;
   return <div className="field-decision"><section role="dialog" aria-label="Kaufentscheidung" className="purchase-slip"><small>KAUFENTSCHEIDUNG · FELD {tile.id}</small><header>{logo ? <img src={logo} alt=""/> : <Building2/>}<h2>{tile.name}</h2></header><Yield id={tile.id} v={v}/>
     {short && <p className="cash-warning" role="status">Nicht genug Geld: Du hast {money(v.own.cash)}, der Kauf kostet {money(value)}.</p>}
     <button className="primary wide" disabled={short} onClick={()=>send({type:"BUY_COMPANY"})}>Kaufen · {money(value)}</button>
@@ -68,16 +69,20 @@ function Transfer({kicker,amount,reason,to,available,onPay,disabled,until,childr
 }
 export function BankSettlement({v,send,paid}:{v:View;send:Sender;paid:(receipt:Receipt)=>void}) {
   const bill=v.debt!,shortfall=bill.amount-v.own.cash,finance=shortfall>0,to=v.players.find(person=>person.id===bill.to)?.name??"Spielbank";
-  const heading=useRef<HTMLHeadingElement>(null);
+  const heading=useRef<HTMLHeadingElement>(null),[confirm,setConfirm]=useState(false);
   useEffect(()=>{if(finance)heading.current?.focus({preventScroll:true});},[finance]);
   if(!finance) return <Transfer kicker={bill.purchase?"KAUFPREIS":"ZAHLUNGSAUFTRAG"} amount={bill.amount} reason={bill.reason} to={to} available={v.own.cash} until={v.deadline} disabled={v.paused} onPay={()=>{send({type:"CONFIRM_PAYMENT"});paid({amount:bill.amount,reason:bill.reason,to});}}>{bill.purchase && <button className="wide" onClick={()=>send({type:"DECLINE"})}>Kauf abbrechen</button>}</Transfer>;
+  const rows=board.filter(tile=>v.assets[tile.id].owner===v.me).map(tile=>({tile,options:assetOptions(v,tile.id)})).filter(row=>row.options.length);
   return <section className="device-screen bank-sheet">
-    <small>LIQUIDITÄT <Countdown until={v.deadline}/></small><h2 ref={heading} tabIndex={-1}>Finanzierung</h2>
+    <small>GELDBESCHAFFUNG · KEINE FRIST</small><h2 ref={heading} tabIndex={-1}>Finanzierung</h2>
     <b className="bill-total">{money(bill.amount)} CHF</b><dl className="facts"><div><dt>Zweck</dt><dd>{bill.reason}</dd></div><div><dt>Empfänger</dt><dd>{to}</dd></div><div><dt>Verfügbar</dt><dd>{money(v.own.cash)} CHF</dd></div></dl>
-    <p className="shortfall">Es fehlen <strong>{money(shortfall)} CHF</strong>. Wähle, womit du Geld beschaffst.</p>
-    {board.filter(tile=>v.assets[tile.id].owner===v.me).map(tile=>{const options=assetOptions(v,tile.id);return options.length ? <div key={tile.id} className="finance-row"><strong>{tile.short}</strong>{options.map(action=><button key={action.op} onClick={()=>send({type:"ASSET",tile:tile.id,op:action.op})}>{action.label} · +{money(action.amount)}</button>)}</div> : null;})}
-    {!v.assets.some(asset=>asset.owner===v.me) && <p>Kein Besitz zur Finanzierung verfügbar. Ohne Deckung folgt bei Fristende der Konkurs.</p>}
-    {bill.purchase && <button className="wide" onClick={()=>send({type:"DECLINE"})}>Kauf abbrechen</button>}
+    <p className="shortfall">Es fehlen <strong>{money(shortfall)} CHF</strong>. Beschaffe das Geld in Ruhe: Solange es fehlt, läuft keine Frist. Sobald dein Guthaben reicht, hast du 10 Sekunden zum Bezahlen. Die anderen sehen live, was du beleihst oder verkaufst.</p>
+    {rows.map(({tile,options})=><div key={tile.id} className="finance-row"><strong>{tile.short}</strong>{options.map(action=><button key={action.op} onClick={()=>send({type:"ASSET",tile:tile.id,op:action.op})}>{action.label} · +{money(action.amount)}</button>)}</div>)}
+    {!rows.length && <p>Kein Besitz mehr zur Finanzierung verfügbar. Die Zahlung ist nicht gedeckt.</p>}
+    {confirm ? <div className="resign-confirm" role="alertdialog" aria-label="Automatische Finanzierung bestätigen">
+      <p>{rows.length ? "Die Bank baut Stufen ab, beleiht und verkauft automatisch, bis die Zahlung gedeckt ist. Reicht dein Besitz nicht, bist du bankrott." : "Ohne Deckung bist du bankrott. Dein restliches Geld und dein Besitz gehen an den Empfänger."}</p>
+      <div><button onClick={()=>setConfirm(false)}>Abbrechen</button><button className="danger" onClick={()=>{setConfirm(false);send({type:"CONFIRM_PAYMENT"});}}>{rows.length ? "Bank finanzieren lassen" : "Konkurs anmelden"}</button></div>
+    </div> : <button className={rows.length ? "wide" : "danger wide"} onClick={()=>setConfirm(true)}>{rows.length ? "Bank finanzieren lassen" : "Konkurs anmelden"}</button>}
   </section>;
 }
 export function TransferSheet({request,v,send,paid,cancel}:{request:PayRequest;v:View;send:Sender;paid:(receipt:Receipt)=>void;cancel:()=>void}) {

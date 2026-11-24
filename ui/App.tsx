@@ -1,4 +1,4 @@
-import { Component, lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { Component, Fragment, lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   Activity,
   AudioLines,
@@ -9,6 +9,7 @@ import {
   Crosshair,
   DoorOpen,
   GraduationCap,
+  Hotel,
   Images,
   Lock,
   PanelLeft,
@@ -17,10 +18,11 @@ import {
   Settings2,
   Spade,
   Smartphone,
+  WifiOff,
   X,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { board, colours, groups, money, tokenColors } from "../game/board";
+import { board, colours, groups, money, taxes, tokenColors } from "../game/board";
 import { rent } from "../game/economy";
 import { TurnDisplay, useTrip } from "./TurnDisplay";
 import { portraitUrl } from "./portrait";
@@ -34,8 +36,8 @@ import { boardIdentity } from "./boardIdentity";
 import { fieldPrint } from "./fieldPrint";
 import type { View } from "../game/view";
 import type { Command } from "../game/model";
-import { connect, forget, type Channel, type Mode } from "./transport";
-import { Entry, Avatar, Welcome, Rules, Lobby, Modal, phaseNames, Help } from "./panels";
+import { connect, forget, type Channel, type Link, type Mode } from "./transport";
+import { Entry, Welcome, Rules, Lobby, Modal, phaseNames, Help, icons } from "./panels";
 import { Handset, activityText } from "./Handset";
 import { emptyDraft, type Note, type Page, type Tab, type TradeDraft } from "./handsetTypes";
 import { CasinoFloor, CasinoInvite } from "./Casino";
@@ -96,7 +98,7 @@ function Flat({ pick, v, pieces, dice, marks = [] }: { pick: (id: number) => voi
             <small>FELD {String(selected.id).padStart(2, "0")} · {groups[selected.group] ?? "Sonderfeld"}</small>
             <div className="inspect-stamp" style={{ background: fieldPrint(selected, holder?.token).paper }}><FieldEmblem tile={selected} owner={holder?.token} /></div>
             <b>{selected.name}</b>
-            {selected.base > 0 && <span>{money(v?.assets[selected.id].value ?? selected.base)} CHF</span>}
+            {selected.base > 0 && <span>{taxes[selected.id] ? taxes[selected.id].label : `${money(v?.assets[selected.id].value ?? selected.base)} CHF`}</span>}
             {selected.group >= 0 && <small>{holder?.name ?? "Bank"}</small>}
           </div>
         ) : <BoardStamp />}
@@ -105,31 +107,36 @@ function Flat({ pick, v, pieces, dice, marks = [] }: { pick: (id: number) => voi
       {board.map((tile) => {
         const occupants = pieces.filter((person) => person.pos === tile.id), owner = v?.players.find((person) => person.id === v.assets[tile.id].owner);
         const marker = occupants.find((person) => person.token === v?.players[v.turn].token) ?? occupants[0];
-        const side = Math.floor(tile.id / 10), step = tile.id % 10;
+        const side = Math.floor(tile.id / 10), step = tile.id % 10, level = v?.assets[tile.id].levels.length ?? 0;
         const [col, row] = [[11 - step, 11], [1, 11 - step], [1 + step, 1], [11, 1 + step]][side];
         return (
+          <Fragment key={tile.id}>
           <button
-            key={tile.id}
             title={tile.name}
             aria-label={`Feld ${tile.id}: ${tile.name}`}
             data-occupied={!!marker}
             data-owned={!!owner}
             data-bus={marks.includes(tile.id) || undefined}
-            aria-description={[owner && `Besitz: ${owner.name}`, ...occupants.map((person) => v?.players.find((seat) => seat.token === person.token)?.name)].filter(Boolean).join(" · ") || undefined}
+            aria-description={[owner && `Besitz: ${owner.name}`, level && (level >= 5 ? "Hotel" : `${level} Ausbaustufen`), ...occupants.map((person) => v?.players.find((seat) => seat.token === person.token)?.name)].filter(Boolean).join(" · ") || undefined}
             style={{ gridColumn: col, gridRow: row, outlineColor: tokenColors[owner?.token ?? -1] }}
             onFocus={() => inspect(tile.id)}
             onPointerEnter={(event) => { if (event.pointerType !== "touch") inspect(tile.id); }}
             onClick={() => pick(tile.id)}
           >
-            <FieldTile tile={tile} owner={owner?.token} value={v?.assets[tile.id].value ?? tile.base} level={v?.assets[tile.id].levels.length ?? 0} rent={v && owner && tile.group !== 9 ? rent(v, tile.id, 7) : null} />
+            <FieldTile tile={tile} owner={owner?.token} value={v?.assets[tile.id].value ?? tile.base} level={level} rent={v && owner && tile.group !== 9 ? rent(v, tile.id, 7) : null} />
             <small className="flat-pieces">
-              {occupants.map((person) => (
-                <i key={person.token} className="flat-token" title={v?.players.find((seat) => seat.token === person.token)?.name ?? `Figur ${person.token + 1}`} style={{ backgroundColor: tokenColors[person.token] }}>
-                  {person.photo ? <img alt="" src={portraitUrl(person.photo)} /> : <Avatar token={person.token} />}
-                </i>
-              ))}
+              {occupants.map((person) => {
+                const Icon = icons[person.token];
+                return <i key={person.token} className="flat-token" data-token={person.token} title={v?.players.find((seat) => seat.token === person.token)?.name ?? `Figur ${person.token + 1}`} style={{ backgroundColor: tokenColors[person.token] }}>
+                  {person.photo ? <img alt="" src={portraitUrl(person.photo)} /> : <Icon strokeWidth={2.6} />}
+                </i>;
+              })}
             </small>
           </button>
+          {level > 0 && <span className="flat-level" data-tile={tile.id} data-side={side} data-hotel={level >= 5 || undefined} title={level >= 5 ? "Hotel" : `${level} Ausbaustufen`} style={{ gridColumn: col, gridRow: row }}>
+            {level >= 5 ? <Hotel aria-hidden="true" /> : Array.from({ length: level }, (_, index) => <i key={index} aria-hidden="true">★</i>)}
+          </span>}
+          </Fragment>
         );
       })}
     </div>
@@ -137,6 +144,28 @@ function Flat({ pick, v, pieces, dice, marks = [] }: { pick: (id: number) => voi
 }
 type Flight = { id: string; net: number; text: string; from: { x: number; y: number }; to: { x: number; y: number } };
 type Banner = { id: string; kind: "turn" | "warn"; text: string };
+function LinkOverlay({ link, takeover, retry, leave }: { link: Link; takeover: boolean; retry: () => void; leave: () => void }) {
+  const [now, setNow] = useState(Date.now);
+  const button = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 250);
+    return () => clearInterval(timer);
+  }, []);
+  useEffect(() => { button.current?.focus({ preventScroll: true }); }, [link.state]);
+  const wait = Math.max(0, Math.ceil((link.retryAt - now) / 1000));
+  return <div className="link-overlay" role="alertdialog" aria-modal="true" aria-labelledby="link-title" aria-describedby="link-state">
+    <div className="link-card" data-state={link.state}>
+      <WifiOff size={36} aria-hidden="true" />
+      <h2 id="link-title">Verbindung verloren</h2>
+      <p id="link-state" role="status" aria-live="polite">
+        {link.state === "closed" ? "Dieser Platz ist nicht mehr verfügbar." : link.state === "connecting" ? `Verbinde neu …${link.attempt ? ` (Versuch ${link.attempt})` : ""}` : `Neuer Versuch in ${wait} s (Versuch ${link.attempt})`}
+      </p>
+      {link.state !== "closed" && <span className="link-spinner" aria-hidden="true" />}
+      <small>{link.state === "closed" ? "Kehre zur Startansicht zurück und tritt dem Raum erneut bei." : `Eingaben sind gesperrt, bis die Verbindung wieder steht. Dein Platz bleibt reserviert${takeover ? "; nach 90 Sekunden entscheidet vorübergehend ein Bot für dich" : ""}.`}</small>
+      {link.state === "closed" ? <button ref={button} className="primary" onClick={leave}>Zur Startansicht</button> : <button ref={button} onClick={retry} disabled={link.state === "connecting"}>Jetzt neu verbinden</button>}
+    </div>
+  </div>;
+}
 export function App() {
   const [v, setView] = useState<View | null>(null),
     [modal, setModal] = useState(""),
@@ -150,6 +179,7 @@ export function App() {
     [thread, setThread] = useState<string | null>(null),
     [draft, setDraft] = useState<TradeDraft>(emptyDraft),
     [presence, setPresence] = useState<Record<string, Presence>>({}),
+    [link, setLink] = useState<Link>({ state: "online", attempt: 0, retryAt: 0 }),
     [request, setRequest] = useState<PayRequest | null>(null),
     [receipt, setReceipt] = useState<Receipt | null>(null),
     [notes, setNotes] = useState<Note[]>([]),
@@ -203,7 +233,7 @@ export function App() {
     setBusy(true);
     notice("");
     try {
-      const conn = await connect(next, name, token, code, setView, notice, setStatus, restore, photo, setPresence);
+      const conn = await connect(next, name, token, code, setView, notice, setStatus, restore, photo, setPresence, setLink);
       channel.current?.close();
       channel.current = conn;
       localStorage.setItem("sm-name", name);
@@ -268,6 +298,7 @@ export function App() {
     setView(null);
     setModal("");
     setStatus("Bereit");
+    setLink({ state: "online", attempt: 0, retryAt: 0 });
     setPresence({});
     setDraft(emptyDraft());
     changeTab("Tisch");
@@ -343,7 +374,7 @@ export function App() {
     if (delay < -12000) return;
     const timer = setTimeout(() => {
       warned.current = key;
-      setBanner({ id: `w${key}`, kind: "warn", text: "Deine Zeit läuft ab · noch 15 s" });
+      setBanner({ id: `w${key}`, kind: "warn", text: `Deine Zeit läuft ab · noch ${Math.max(1, Math.ceil((v.deadline - Date.now()) / 1000))} s` });
       if (sound) playSound("warn");
     }, Math.max(0, delay));
     return () => clearTimeout(timer);
@@ -438,6 +469,7 @@ export function App() {
   const testing = !!v && !v.code && v.host === v.me && !["lobby", "over"].includes(v.phase);
   const testReady = testing && v!.phase === "roll" && v!.players[v!.turn].id === v!.me && !trip.moving && !v!.tradeUntil && !v!.paused;
   const blocked = (!!decision && decision.to === v?.me) || invoice || invited;
+  const offline = !!v?.code && link.state !== "online";
   const viewSwitch = (
     <div className="view-switch board-mode" role="group" aria-label="Brettansicht">
       {([["photos", "Fotobrett", Images], ["3d", "3D", Box]] as const).map(([key, label, Icon]) => (
@@ -501,7 +533,7 @@ export function App() {
   />;
   return (
     <div className={`shell desk-shell club-table app-shell ${effects ? "" : "reduce"}`} data-phone={side}>
-      <div className="game-view" inert={blocked}>
+      <div className="game-view" inert={blocked || offline}>
         <section className={`table-area ${isCasino ? "casino-area" : ""}`} aria-label="Interaktiver Spieltisch">
           <div className="surface-top">
             <div className="brand"><Mark /><div>SWISS MARKET<small>HELVETIC BOARD CLUB</small></div></div>
@@ -566,11 +598,12 @@ export function App() {
           </div>
         </section>
       </div>
-      <aside className="device-frame" aria-label="Spielhandy">
+      <aside className="device-frame" aria-label="Spielhandy" inert={offline}>
         {phone}
         {error && <p className="device-error" role="alert">{error}</p>}
       </aside>
-      {invited && v && <CasinoInvite v={v} send={send} />}
+      {invited && v && !offline && <CasinoInvite v={v} send={send} />}
+      {offline && <LinkOverlay link={link} takeover={!!v?.settings.takeover} retry={() => channel.current?.reconnect?.()} leave={() => void leave()} />}
       <AnimatePresence>
         {banner && <motion.div key={banner.id} className={`turn-banner ${banner.kind}`} role="status" initial={{ opacity: 0, scale: 0.85 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 1.05 }} transition={{ duration: 0.45 }}>
           {banner.kind === "turn" ? <Smartphone size={22} /> : <Activity size={22} />}<strong>{banner.text}</strong>

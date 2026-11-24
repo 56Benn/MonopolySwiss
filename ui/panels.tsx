@@ -14,7 +14,7 @@ import {
   Dices,
   Flag,
   Mountain,
-  TrainFront,
+  Bus,
   Watch,
   BriefcaseBusiness,
   Landmark,
@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import {
   defaults,
+  loanTerms,
   presets,
   type Settings,
   type Command,
@@ -36,7 +37,7 @@ import { PortraitCamera } from "./PortraitCamera";
 import { makePortrait, portraitUrl } from "./portrait";
 export const icons = [
   Mountain,
-  TrainFront,
+  Bus,
   Watch,
   BriefcaseBusiness,
   Landmark,
@@ -321,23 +322,27 @@ export function Rules() {
         ],
         [
           "Würfeln & START",
-          "Handeln und ausbauen vor dem Wurf. Nach der Feldentscheidung endet der Zug automatisch. Der optionale Tempowürfel zeigt 1, 2, 3 Zusatzschritte, Bus (du wählst auf dem Brett: erster Würfel, zweiter Würfel oder Summe; nie direkt ins Gefängnis) oder Freifeld (zum nächsten freien Besitz). Nur die ersten zwei Würfel entscheiden über Pasch. Der dritte Pasch führt direkt in Haft. START vorwärts überqueren oder erreichen: einmal 50M. Leertaste oder Enter würfelt.",
+          "Handeln und ausbauen vor dem Wurf. Nach der Feldentscheidung endet der Zug automatisch. Der optionale Tempowürfel zeigt 1, 2, 3 Zusatzschritte, Bus (du wählst auf dem Brett: erster Würfel, zweiter Würfel oder Summe; nie direkt ins Gefängnis) oder Freifeld (zum nächsten freien Besitz). Nur die ersten zwei Würfel entscheiden über Pasch. Der dritte Pasch führt direkt in Haft. START überqueren: 80M, direkt auf START landen: 160M. Wer weniger als die Hälfte des durchschnittlichen Nettovermögens besitzt, erhält bei START zusätzlich 40M Aufbauhilfe. Leertaste oder Enter würfelt.",
         ],
         [
           "Firmen & Miete",
-          "Kauf auf dem Brett wählen und im Handy innert 10 Sekunden bezahlen. Fehlt das Geld, bleibt nur Passen. Bei Verzicht bleibt das Feld bei der Bank. Auktionen gibt es nur bei Verkäufen und ohne Zeitlimit. Preise steigen entlang des Bretts. Miete in % des aktuellen Werts: 6 %, volle Branche 12 %, 1–4 Geldstapel 30 / 55 / 90 / 125 %, Hotel 170 %. Wer im Gefängnis sitzt, erhält keine Miete.",
+          "Kauf auf dem Brett wählen und im Handy innert 10 Sekunden bezahlen. Fehlt das Geld, bleibt nur Passen. Bei Verzicht bleibt das Feld bei der Bank. Auktionen gibt es nur bei Verkäufen und ohne Zeitlimit. Preise steigen entlang des Bretts. Miete in % des aktuellen Werts: 8 %, volle Branche 16 %, 1–4 Geldstapel 40 / 80 / 130 / 180 %, Hotel 240 %. Wer im Gefängnis sitzt, erhält keine Miete.",
         ],
         [
-          "Ausbau & Liquidität",
-          "Eine Stufe kostet 45 % des aktuellen Werts, sofort per Ausbauknopf. Nach vier Geldstapeln folgt das Hotel. Stufen und Firmen verkaufen ist nur möglich, um eine offene Zahlung zu begleichen; eine Stufe bringt 60 % ihres ursprünglichen Preises. Beleihung: 50 %, Tilgung plus 10 %. Bankverkauf: 60 % des Werts abzüglich Darlehen.",
+          "Ausbau & Darlehen",
+          "Eine Stufe kostet 40 % des aktuellen Werts, sofort per Ausbauknopf. Nach vier Geldstapeln folgt das Hotel. Stufen und Firmen verkaufen ist nur möglich, um eine offene Zahlung zu begleichen; eine Stufe bringt 60 % ihres ursprünglichen Preises. Beleihung: 50 % des Werts, Rückzahlung plus 10 % innerhalb der Darlehensfrist (Standard 5 Runden). Eine Runde vor Ablauf kommt eine Erinnerung; bei Fälligkeit wird die Rückzahlung zu Beginn deines Zugs zur Pflichtzahlung. Bankverkauf: 60 % des Werts abzüglich Darlehen.",
         ],
         [
           "Flughäfen & VC",
-          "1 / 2 / 3 / 4 unbeliehene Flughäfen: 10 / 20 / 40 / 80 % des Flughafenwerts. VC: Bewegungssumme × 1.6 % oder bei beiden VC 4 % des Werts. Keine Ausbaustufen.",
+          "1 / 2 / 3 / 4 unbeliehene Flughäfen: 12 / 25 / 50 / 100 % des Flughafenwerts. VC: Bewegungssumme × 2.5 % oder bei beiden VC 6 % des Werts. Keine Ausbaustufen.",
+        ],
+        [
+          "Steuern",
+          "Einkommenssteuer: 10 % des Bargelds, mindestens 20M. Vermögenssteuer: 4 % des Nettovermögens, mindestens 30M. Wer wenig hat, zahlt wenig; grosse Vermögen zahlen deutlich mehr.",
         ],
         [
           "Markt & Karten",
-          "Ereignisse verändern Firmenwerte und damit Mieten, Ausbaupreise und Verkaufswerte für alle. Kurse bleiben bei 70–150 % des Startwerts und kehren jede Runde leicht zum Startwert zurück. Chancekarten bewegen Figuren, buchen Geld oder bleiben als handelbare Besitzkarten auf der Hand.",
+          "Ereignisse verändern Firmenwerte und damit Mieten, Ausbaupreise und Verkaufswerte für alle. Kurse bleiben bei 70–150 % des Startwerts und kehren jede Runde um 10 % zum Startwert zurück. Mit „Marktbewegung je Spielrunde“ (Standard) bewegen sich die Branchen zum Rundenschluss um bis zu ±3 %. Chancekarten bewegen Figuren, buchen Geld oder bleiben als handelbare Besitzkarten auf der Hand. Manche Beträge hängen vom Vermögen ab, etwa 5 % des Bargelds oder 10M je Ausbaustufe.",
         ],
         [
           "Gefängnis",
@@ -345,7 +350,7 @@ export function Rules() {
         ],
         [
           "Handel & Schulden",
-          "Je Empfänger zwei Anfragen pro Spielrunde, nur vor dem Würfeln. Eine Anfrage wird sofort beantwortet; das Spiel wartet höchstens 30 Sekunden. Ausgebaute Branchen sind nicht handelbar. Anfragen, Annahmen und Ablehnungen erscheinen im Tischchat. Miete, Steuern, Bussen und Käufe bestätigst du im Handy innert 10 Sekunden per Wisch nach rechts; Ausbauten werden sofort gebucht. Fehlt Geld für eine Pflichtzahlung, bleiben 40 Sekunden zur Finanzierung, danach baut die Bank ab, beleiht und verkauft. „Bankrott melden“ lässt nur dich ausscheiden; für ein Unentschieden stimmen alle ab.",
+          "Je Empfänger zwei Anfragen pro Spielrunde, nur vor dem Würfeln. Eine Anfrage wird sofort beantwortet; das Spiel wartet höchstens 30 Sekunden. Ausgebaute Branchen sind nicht handelbar. Anfragen, Annahmen und Ablehnungen erscheinen im Tischchat. Miete, Steuern, Bussen und Käufe bestätigst du im Handy innert 10 Sekunden per Wisch nach rechts; Ausbauten werden sofort gebucht. Fehlt Geld für eine Pflichtzahlung, läuft keine Frist: Du beleihst, verkaufst Stufen oder Firmen, und alle sehen live, was du verkaufst. Sobald das Geld reicht, startet die 10-Sekunden-Frist. „Bank finanzieren lassen“ erledigt das automatisch; reicht der Besitz nicht, folgt der Konkurs. „Bankrott melden“ lässt nur dich ausscheiden; für ein Unentschieden stimmen alle ab.",
         ],
         [
           "Blackjack",
@@ -353,7 +358,7 @@ export function Rules() {
         ],
         [
           "Wertung",
-          "Nettovermögen = Bargeld inkl. einmalig gezählter Reservierungen + Firmenwerte + halbe bezahlte Ausbaukosten − Darlehen. Gratis-Chips zählen nicht. Bei Gleichstand entscheiden Nettovermögen, Bargeld, dann geteilter Sieg.",
+          "Nettovermögen = Bargeld inkl. einmalig gezählter Reservierungen + Firmenwerte + 60 % der bezahlten Ausbaukosten − Darlehen. Gratis-Chips zählen nicht. Bei Gleichstand entscheiden Nettovermögen, Bargeld, dann geteilter Sieg.",
         ],
       ].map(([title, text], index) => (
         <details key={title} open={index === 0}>
@@ -390,7 +395,9 @@ const hints: Record<string, string> = {
   "Fremde Kontostände verbergen":
     "Nur der eigene Kontostand ist sichtbar. Am Spielende werden alle aufgedeckt.",
   "Marktbewegung je Spielrunde":
-    "Nach einer vollständigen Runde ändern sich Branchenkurse um bis zu zwei Prozent.",
+    "Zum Rundenschluss bewegen sich alle Branchen zufällig um bis zu ±3 %. Hält den Markt lebendig.",
+  Darlehensfrist:
+    "So viele Runden bleibt ein Darlehen offen. Eine Runde vorher gibt es eine Erinnerung, danach wird die Rückzahlung (Darlehen plus 10 %) zu Beginn des eigenen Zugs zur Pflichtzahlung.",
   "Auktionen bei Verkauf":
     "Verkaufte Felder werden von der Bank ohne Zeitlimit versteigert, bis alle anderen gepasst haben. Ein abgelehnter Kauf löst keine Auktion aus. Mindestabstand: 1M.",
   "Bot-Übernahme bei Unterbrechung":
@@ -578,6 +585,7 @@ export function Lobby({
           <h3>Wirtschaft</h3>
           <Select label="Mietniveau" value={s.rent} options={[[7500, "Entspannt · 0.75×"], [10000, "Normal · 1×"], [12500, "Hart · 1.25×"]]} change={(value) => update({ rent: +value as Settings["rent"] })} />
           <Select label="Volatilität" value={s.volatility} options={["Ruhig", "Normal", "Wild"]} change={(value) => update({ volatility: value as Settings["volatility"] })} />
+          <Select label="Darlehensfrist" value={s.loanRounds ?? defaults.loanRounds} options={loanTerms.map((rounds) => [rounds, `${rounds} Runden`])} change={(value) => update({ loanRounds: +value })} />
           {bool("auto", "Marktbewegung je Spielrunde")}
           {bool("auctions", "Auktionen bei Verkauf")}
           {bool("hidden", "Fremde Kontostände verbergen")}

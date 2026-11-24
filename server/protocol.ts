@@ -24,6 +24,7 @@ const settings = z.strictObject({
   perRound: z.boolean(),
   takeover: z.boolean(),
   competitive: z.boolean(),
+  loanRounds: z.literal([3, 4, 5, 6, 8, 10]),
 });
 const command: z.ZodType<Command> = z.discriminatedUnion("type", [
   z.strictObject({

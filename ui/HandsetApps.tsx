@@ -19,8 +19,8 @@ import {
   TrendingUp,
   Users,
 } from "lucide-react";
-import { board, colours, groups, M, money, rate, type Tile } from "../game/board";
-import { cards, card } from "../game/cards";
+import { board, colours, groups, M, money, rate, tokenColors, type Tile } from "../game/board";
+import { cards, card, couponCap, insuranceCap } from "../game/cards";
 import type { View } from "../game/view";
 import type { Bundle } from "../game/model";
 import { Avatar, type Sender } from "./panels";
@@ -36,7 +36,14 @@ const holdings = (v: View, owner: string) =>
     return { name, index, total: all.length, tiles: all.filter((tile) => v.assets[tile.id].owner === owner) };
   }).filter((group) => group.tiles.length);
 export function cardHelp(id: string) {
-  return id === "C21" ? "Übernimmt bei einer Schadenskarte bis zu 30M." : id === "C22" ? "Beim nächsten Kauf einlösbar: 15 % Rabatt, höchstens 10M." : "Statt der Kaution einsetzen, um das Gefängnis sofort zu verlassen.";
+  return id === "C21" ? `Übernimmt bei einer Schadenskarte bis zu ${money(insuranceCap)}.` : id === "C22" ? `Beim nächsten Kauf einlösbar: 15 % Rabatt, höchstens ${money(couponCap)}.` : "Statt der Kaution einsetzen, um das Gefängnis sofort zu verlassen.";
+}
+/** Restlaufzeit eines Darlehens; `urgent` ab einer Runde vor Fälligkeit. */
+export function loanDue(v: Pick<View, "assets" | "round">, id: number) {
+  const due = v.assets[id].due;
+  if (!v.assets[id].loan || due === undefined) return null;
+  const left = due - v.round;
+  return { left, urgent: left <= 1, text: left <= 0 ? "jetzt fällig" : left === 1 ? `fällig nächste Runde (R${due})` : `fällig in ${left} Runden (R${due})` };
 }
 function Trend({ history }: { history: number[] }) {
   if (history.length < 2) return <span className="trend" data-flat="true">–</span>;
@@ -48,11 +55,11 @@ function Trend({ history }: { history: number[] }) {
   </span>;
 }
 function Holding({ v, tile, pick, tag, action }: { v: View; tile: Tile; pick: (id: number) => void; tag?: string; action?: { label: string; run: () => void; disabled?: boolean } }) {
-  const asset = v.assets[tile.id];
-  return <div className="holding">
+  const asset = v.assets[tile.id], due = loanDue(v, tile.id);
+  return <div className="holding" data-due={due?.urgent || undefined}>
     <button className="holding-main" onClick={() => pick(tile.id)}>
       {companyLogo(tile) ? <img src={companyLogo(tile)} alt="" /> : <span className="holding-dot" style={{ background: colours[tile.group] }} />}
-      <span>{tile.short}<small>{asset.levels.length ? (asset.levels.length >= 5 ? "Hotel" : `${"★".repeat(asset.levels.length)} ${asset.levels.length} Geldstapel`) : asset.loan ? `belehnt ${money(asset.loan)}` : groups[tile.group]}</small></span>
+      <span>{tile.short}<small>{asset.levels.length ? (asset.levels.length >= 5 ? "Hotel" : `${"★".repeat(asset.levels.length)} ${asset.levels.length} Geldstapel`) : asset.loan ? `belehnt ${money(asset.loan)}${due ? ` · ${due.text}` : ""}` : groups[tile.group]}</small></span>
       <b>{money(asset.value)}</b>
       <Trend history={asset.history} />
     </button>
@@ -64,7 +71,8 @@ export function Portfolio({ v, pick }: { v: View; pick: (id: number) => void }) 
   const mine = v.assets.filter((asset) => asset.owner === v.me);
   const firms = mine.reduce((total, asset) => total + asset.value, 0),
     build = mine.reduce((total, asset) => total + asset.levels.reduce((sum, cost) => sum + rate(cost, refundShare), 0), 0),
-    loans = mine.reduce((total, asset) => total + asset.loan, 0);
+    loans = mine.reduce((total, asset) => total + asset.loan, 0),
+    next = Math.min(...mine.filter((asset) => asset.loan && asset.due !== undefined).map((asset) => asset.due!));
   return <>
     <section className="worth-card">
       <small>NETTOVERMÖGEN</small>
@@ -73,7 +81,7 @@ export function Portfolio({ v, pick }: { v: View; pick: (id: number) => void }) 
         <div><small>Bargeld</small><b>{money(v.own.cash)}</b></div>
         <div><small>Firmen</small><b>{money(firms)}</b></div>
         <div><small>Ausbauwert</small><b>{money(build)}</b></div>
-        <div data-negative={loans > 0}><small>Darlehen</small><b>{loans ? "−" : ""}{money(loans)}</b></div>
+        <div data-negative={loans > 0}><small>Darlehen</small><b>{loans ? "−" : ""}{money(loans)}</b>{Number.isFinite(next) && <small data-due={next - v.round <= 1 || undefined}>nächste Fälligkeit R{next}</small>}</div>
         {v.own.reserved > 0 && <div><small>Gebunden</small><b>{money(v.own.reserved)}</b></div>}
       </div>
       {v.settings.win === "goal" && <div className="goal"><progress value={v.own.worth} max={v.settings.goal * M} /><small>Ziel: {money(v.settings.goal * M)}</small></div>}
@@ -119,7 +127,7 @@ function BundleForm({ v, title, id, value, change }: { v: View; title: string; i
         return <label className="check company-choice" key={tile.id} data-locked={locked}>
         <input type="checkbox" disabled={locked} checked={value.assets.includes(tile.id)} onChange={(event) => change({ ...value, assets: event.target.checked ? [...value.assets, tile.id] : value.assets.filter((other) => other !== tile.id) })} />
         {companyLogo(tile) && <img alt="" src={companyLogo(tile)} />}
-        <span>{tile.short}<small>{locked ? "ausgebaut · nicht handelbar" : `${money(v.assets[tile.id].value)}${v.assets[tile.id].loan > 0 ? ` · belehnt ${money(v.assets[tile.id].loan)}` : ""}`}</small></span>
+        <span>{tile.short}<small>{locked ? "ausgebaut · nicht handelbar" : `${money(v.assets[tile.id].value)}${v.assets[tile.id].loan > 0 ? ` · belehnt ${money(v.assets[tile.id].loan)}${loanDue(v, tile.id) ? `, ${loanDue(v, tile.id)!.text}` : ""}` : ""}`}</small></span>
         {help.has(tile.id) && !locked && <em className="set-tag"><BadgeCheck size={13} />{help.get(tile.id) === "complete" ? "Vervollständigt dein Set" : "Ergänzt dein Set"}</em>}
       </label>;
       })}
@@ -257,7 +265,7 @@ export function Chats({ v, send, thread, setThread, unread, muted, toggleMute }:
         return <div key={message.id} className={`bubble-row ${mine ? "outgoing" : "incoming"}`} data-first={first}>
           {!thread && !mine && (first ? <Avatar token={sender?.token ?? 0} photo={sender?.photo} /> : <span className="avatar-gap" />)}
           <p className="bubble">
-            {!thread && !mine && first && <b style={{ color: sender ? ["#ed6553", "#d8b15c", "#48ab91", "#6b9dc0", "#ba90a7", "#9a8f6a"][sender.token] : undefined }}>{message.name}</b>}
+            {!thread && !mine && first && <b style={{ color: sender ? tokenColors[sender.token] : undefined }}>{message.name}</b>}
             <span>{messageText(message)}</span>
             <small>{new Date(message.time).toLocaleTimeString("de-CH", { hour: "2-digit", minute: "2-digit" })}{mine && <CheckCheck size={14} />}</small>
           </p>

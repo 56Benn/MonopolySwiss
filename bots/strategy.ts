@@ -1,6 +1,7 @@
-import { board, M, rate } from "../game/board.ts";
+import { board, M, rate, taxes } from "../game/board.ts";
+import { couponCap } from "../game/cards.ts";
 import { score, stakeLimit } from "../game/casino.ts";
-import { buildBlock, buildPrice, members, quotedRent } from "../game/economy.ts";
+import { buildBlock, buildPrice, members, quotedRent, repayAmount } from "../game/economy.ts";
 import type { Command, Difficulty, Bundle } from "../game/model.ts";
 import type { View } from "../game/view.ts";
 
@@ -79,7 +80,8 @@ export function decide(v: View, level: Difficulty): Command | null {
     const cap = floorM(Math.min(v.own.cash - reserve * 0.8, fair * (level === "Einfach" ? 0.7 : level === "Mittel" ? 0.85 : 0.95)));
     const step = Math.max(M, floorM(value * 0.05));
     if (fair < value * 0.5 || sale.bid + M > cap) return { type: "PASS_BID" };
-    return { type: "BID", amount: Math.min(cap, Math.max(sale.bid + step, floorM(value * 0.4))) };
+    // Große Sprünge Richtung Obergrenze halten Auktionen kurz.
+    return { type: "BID", amount: Math.min(cap, Math.max(sale.bid + step, floorM(value * 0.4), floorM(sale.bid + (cap - sale.bid) / 2))) };
   }
 
   if (!active) return null;
@@ -90,7 +92,7 @@ export function decide(v: View, level: Difficulty): Command | null {
       if (tile.group >= 0 && !asset.owner) return asset.value <= v.own.cash - reserve * 0.5 ? worthFor(id, me.id) * 0.3 : 0;
       if (tile.group >= 0 && asset.owner === me.id) return 2 * M;
       if (tile.group >= 0) return -expectedRent(id);
-      return tile.base ? -tile.base : tile.id === 20 ? 10 * M : 0;
+      return tile.base ? -(taxes[id] ? Math.max(tile.base, v.own.cash * 0.1) : tile.base) : tile.id === 20 ? 10 * M : 0;
     };
     const best = [...v.bus].sort((left, right) => appeal(right.target) - appeal(left.target))[0];
     return { type: "BUS_CHOOSE", steps: best.steps };
@@ -106,11 +108,11 @@ export function decide(v: View, level: Difficulty): Command | null {
     const loan = cheap.find((tile) => !v.assets[tile.id].loan);
     if (loan) return { type: "ASSET", tile: loan.id, op: "loan" };
     const sale = cheap.find((tile) => rate(v.assets[tile.id].value, 6000) > v.assets[tile.id].loan);
-    return sale ? { type: "ASSET", tile: sale.id, op: "sell" } : null;
+    return sale ? { type: "ASSET", tile: sale.id, op: "sell" } : { type: "CONFIRM_PAYMENT" };
   }
 
   if (v.phase === "buy") {
-    const tile = board[me.pos], price = v.assets[me.pos].value - (v.own.cards.includes("C22") ? Math.min(10 * M, rate(v.assets[me.pos].value, 1500)) : 0);
+    const tile = board[me.pos], price = v.assets[me.pos].value - (v.own.cards.includes("C22") ? Math.min(couponCap, rate(v.assets[me.pos].value, 1500)) : 0);
     if (v.own.cash < price) return { type: "DECLINE" };
     const after = v.own.cash - price, family = familyOf(me.pos), held = family.filter((other) => owner(other.id) === me.id).length;
     const strategic = held > 0 || (level === "Schwer" && denial(me.pos));
@@ -122,6 +124,14 @@ export function decide(v: View, level: Difficulty): Command | null {
   if (v.phase === "choice" || v.phase === "insurance") return { type: "REACT", yes: v.phase === "insurance" };
 
   if (v.phase === "roll") {
+    // Darlehen vor der Fälligkeit tilgen, sobald es die Reserve erlaubt; kurz vor Frist auch knapper.
+    const loan = ownedBy(me.id)
+      .filter((tile) => v.assets[tile.id].loan)
+      .sort((left, right) => (v.assets[left.id].due ?? Infinity) - (v.assets[right.id].due ?? Infinity))[0];
+    if (loan) {
+      const cost = repayAmount(v.assets[loan.id].loan), urgent = (v.assets[loan.id].due ?? Infinity) - v.round <= 1;
+      if (cost <= (urgent ? v.own.cash - reserve * 0.4 : free)) return { type: "ASSET", tile: loan.id, op: "repay" };
+    }
     if (level !== "Einfach") {
       const proposal = propose();
       if (proposal) return proposal;
@@ -136,7 +146,7 @@ export function decide(v: View, level: Difficulty): Command | null {
   return null;
 
   function propose(): Command | null {
-    const asked = new Set(v.trades.filter((trade) => trade.from === me.id && trade.round === v.round).flatMap((trade) => trade.want.assets));
+    const asked = new Set(v.trades.filter((trade) => trade.from === me.id && trade.round >= v.round - 1).flatMap((trade) => trade.want.assets));
     const wanted = board
       .filter((tile) => {
         const holder = owner(tile.id);

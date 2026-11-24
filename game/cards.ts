@@ -1,10 +1,17 @@
+import { M } from "./board.ts";
+export const insuranceCap = 60 * M;
+export const couponCap = 20 * M;
+/** Risikokapital: sicherer Betrag oder 50/50 zwischen Gewinn und Verlust, in Mio. */
+export const gamble = { safe: 15, win: 60, loss: 30 };
 export type MarketEffect = {
   groups: number[] | "all" | "random" | "other";
   pct: number | "up" | "down" | "either";
 };
+/** cash: feste Mio.; portfolio/wealth: Prozent von Firmenwert bzw. Bargeld; levels: Mio. je Ausbaustufe. */
+export type CashEffect = { kind: "cash" | "portfolio" | "wealth" | "levels"; amount: number; min?: number; cap?: number };
 export type Effect =
   | { kind: "market"; changes: MarketEffect[] }
-  | { kind: "cash" | "portfolio"; amount: number }
+  | CashEffect
   | { kind: "move"; target: "start" | "zurich" | "next" | "back" | "jail" }
   | { kind: "keep"; item: "lawyer" | "insurance" | "coupon" }
   | { kind: "choice" };
@@ -60,28 +67,22 @@ events.push(
   ["Überraschende Marktreaktion", [{ groups: "random", pct: "either" }]],
 );
 const chances: [string, Effect][] = [
-  "Dein Start-up geht an die Börse",
-  "Strafe für Steuerhinterziehung",
-  "Erfolgreiche Beratung",
-  "Patent verkauft",
-  "Betriebskosten explodieren",
-  "Steuerrückerstattung",
-  "Verpasste Frist",
-  "Investorenpreis",
-  "Falsch geparkte Firmenflotte",
-  "Erfolgreicher Messeauftritt",
-  "Cybervorfall im eigenen Portfolio",
-  "Förderbeitrag",
-].map((name, index) => [
-  name,
-  {
-    kind: "cash",
-    amount: [60, -30, 15, 20, -25, 12, -15, 20, -10, 10, -30, 15][index],
-  },
-]);
+  ["Dein Start-up geht an die Börse", { kind: "cash", amount: 80 }],
+  ["Strafe für Steuerhinterziehung", { kind: "wealth", amount: -5, min: 15 }],
+  ["Erfolgreiche Beratung", { kind: "cash", amount: 25 }],
+  ["Patent verkauft", { kind: "cash", amount: 35 }],
+  ["Betriebskosten explodieren", { kind: "portfolio", amount: -3, min: 10, cap: 200 }],
+  ["Steuerrückerstattung", { kind: "cash", amount: 20 }],
+  ["Verpasste Frist", { kind: "cash", amount: -20 }],
+  ["Investorenpreis", { kind: "cash", amount: 30 }],
+  ["Falsch geparkte Firmenflotte", { kind: "cash", amount: -15 }],
+  ["Erfolgreicher Messeauftritt", { kind: "cash", amount: 20 }],
+  ["Cybervorfall im eigenen Portfolio", { kind: "levels", amount: -10, min: 15 }],
+  ["Förderbeitrag", { kind: "cash", amount: 30 }],
+];
 chances.push(
-  ["Portfolioausschüttung", { kind: "portfolio", amount: 2 }],
-  ["Vermögensabgabe", { kind: "portfolio", amount: -2 }],
+  ["Portfolioausschüttung", { kind: "portfolio", amount: 5, cap: 150 }],
+  ["Vermögensabgabe", { kind: "portfolio", amount: -5, cap: 250 }],
   ["Vorstand auf Geschäftsreise", { kind: "move", target: "start" }],
   ["Sitzung in Zürich", { kind: "move", target: "zurich" }],
   ["Quartalsbesuch", { kind: "move", target: "next" }],
@@ -114,3 +115,19 @@ export const cards: Card[] = [
   ),
 ];
 export const card = (id: string) => cards.find((item) => item.id === id)!;
+export const cashEffect = (effect: Effect): effect is CashEffect =>
+  ["cash", "portfolio", "wealth", "levels"].includes(effect.kind);
+/** Lesbare Formel einer Geldkarte ohne Vorzeichen, z. B. „5 % deines Bargelds (mind. 15M)“. */
+export function effectText(effect: CashEffect) {
+  const size = Math.abs(effect.amount),
+    limits = [effect.min ? `mind. ${effect.min}M` : "", effect.cap ? `höchstens ${effect.cap}M` : ""].filter(Boolean).join(", ");
+  const base =
+    effect.kind === "cash"
+      ? `${size}M`
+      : effect.kind === "portfolio"
+        ? `${size} % des eigenen Firmenwerts`
+        : effect.kind === "wealth"
+          ? `${size} % des Bargelds`
+          : `${size}M je Ausbaustufe`;
+  return limits ? `${base} (${limits})` : base;
+}

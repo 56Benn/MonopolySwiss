@@ -1,15 +1,16 @@
 import { useEffect, useRef } from "react";
 import { ArrowDownRight, ArrowUpRight, X } from "lucide-react";
-import { board, colours, groups, money, rate } from "../game/board";
-import { buildBlock, buildPrice, levelName, maxLevel, members, quotedRent, refundShare, rent as liveRent } from "../game/economy";
+import { board, colours, groups, money, rate, recoveryBonus, startBonus, taxes } from "../game/board";
+import { buildBlock, buildPrice, levelName, maxLevel, members, quotedRent, refundShare, rent as liveRent, repayAmount } from "../game/economy";
 import type { View } from "../game/view";
 import { companyLogo, isSurveyPhoto, siteCaption, sitePhoto } from "./companyLogos";
 import { FieldEmblem } from "./FieldTile";
 import type { Sender } from "./panels";
 import { assetOptions, type PayRequest } from "./Settlement";
 import { Spark } from "./Spark";
+import { loanDue } from "./HandsetApps";
 
-export const specialRule = (id:number) => id === 0 ? "50M beim regulären Erreichen oder Überqueren." : board[id].base ? `Zahlung an die Bank: ${money(board[id].base)}.` : id === 20 ? "Casino: 10M Bonus und Einladung an alle zu einer Runde Blackjack." : id === 30 ? "Direkt ins Gefängnis, ohne START-Bonus." : id === 10 ? "Nur zu Besuch, sofern kein Haftbefehl vorliegt. Wer sitzt, erhält keine Miete." : "Bei Landung wird eine Karte gezogen.";
+export const specialRule = (id:number) => id === 0 ? `${money(startBonus)} beim Überqueren, ${money(startBonus*2)} bei direkter Landung. Wer weniger als die Hälfte des durchschnittlichen Nettovermögens besitzt, erhält zusätzlich ${money(recoveryBonus)} Aufbauhilfe.` : taxes[id] ? `Zahlung an die Bank: ${taxes[id].label}, mindestens ${money(board[id].base)}.` : id === 20 ? "Casino: 10M Bonus und Einladung an alle zu einer Runde Blackjack." : id === 30 ? "Direkt ins Gefängnis, ohne START-Bonus." : id === 10 ? "Nur zu Besuch, sofern kein Haftbefehl vorliegt. Wer sitzt, erhält keine Miete." : "Bei Landung wird eine Karte gezogen.";
 
 export function FieldCard({id,v,close,send,pay,trade}:{id:number;v:View|null;close:()=>void;send:Sender;pay:(request:PayRequest)=>void;trade:(owner:string,tile:number)=>void}) {
   const tile=board[id], group=tile.group, asset=v?.assets[id], value=asset?.value ?? tile.base, logo=companyLogo(tile);
@@ -38,6 +39,7 @@ export function FieldCard({id,v,close,send,pay,trade}:{id:number;v:View|null;clo
         <dl className="deed-prices">
           <div><dt>Startwert</dt><dd>{money(tile.base)}</dd></div>
           <div><dt>{asset?.loan ? "Offenes Darlehen" : "Beleihungswert"}</dt><dd>{money(asset?.loan || rate(value,5000))}</dd></div>
+          {v && asset?.loan ? <div data-due={loanDue(v,id)?.urgent || undefined}><dt>Rückzahlung</dt><dd>{money(repayAmount(asset.loan))} · {loanDue(v,id)?.text ?? "offen"}</dd></div> : null}
           {company && <div><dt>Ausbau je Stufe</dt><dd>{money(buildPrice(value))}</dd></div>}
           {company && <div><dt>Ausbau</dt><dd>{asset?.levels.length ? levelName(asset.levels.length) : "keiner"}</dd></div>}
           <div><dt>Besitzer</dt><dd>{owner ? `${owner.name}${owner.id===v?.me ? " (du)" : ""}${owner.jail ? " · im Gefängnis" : ""}` : "Bank"}</dd></div>

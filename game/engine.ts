@@ -1,5 +1,5 @@
-import { board, M, money, rate, startBonus } from "./board.ts";
-import { card } from "./cards.ts";
+import { board, M, money, rate, recoveryBonus, startBonus, taxes } from "./board.ts";
+import { card, cashEffect, couponCap, gamble, insuranceCap } from "./cards.ts";
 import { diceText, revealMs, rollDistance, travelTime } from "./dice.ts";
 import { phraseText, type PhraseKind } from "./phrases.ts";
 import {
@@ -37,10 +37,14 @@ import {
 } from "./model.ts";
 import {
   assetAction,
+  cardCash,
+  drift,
   rent,
   rentText,
+  repayAmount,
   sum,
   market,
+  taxDue,
   worth,
   victory,
   offer,
@@ -130,9 +134,7 @@ function nextTurn(s: Game, now: number, rng: Random) {
         if (item.status === "Offen") item.status = "Abgelaufen";
       });
       revert(s);
-      if (s.settings.auto)
-        for (let group = 0; group < 8; group++)
-          market(s, [group], rng(5) - 2, "Rundenschluss", now);
+      if (s.settings.auto) drift(s, Array.from({ length: 8 }, () => rng(7) - 3), now);
       s.players.forEach((p) => {
         p.history = [...p.history, worth(s, p)].slice(-100);
       });
@@ -145,6 +147,49 @@ function nextTurn(s: Game, now: number, rng: Random) {
   s.turnBuilds = 0;
   s.turnDeadline = s.settings.limit ? now + s.settings.limit * 1000 : 0;
   phase(s, "roll", now);
+  loanCheck(s, now);
+}
+/** Prüft zu Beginn des eigenen Zugs fällige Darlehen und erinnert eine Runde vorher. */
+function loanCheck(s: Game, now: number) {
+  const p = current(s),
+    term = s.settings.loanRounds ?? 5,
+    loans = board.filter((tile) => s.assets[tile.id].owner === p.id && s.assets[tile.id].loan);
+  for (const tile of loans) s.assets[tile.id].due ??= s.round + term;
+  for (const tile of loans.filter((tile) => s.assets[tile.id].due === s.round + 1))
+    log(s, now, "Konto", `Erinnerung: Darlehen ${tile.short} von ${p.name} ist nächste Runde fällig · ${money(repayAmount(s.assets[tile.id].loan))}`);
+  const due = loans.filter((tile) => s.assets[tile.id].due! <= s.round);
+  if (!due.length) return;
+  const names = due.map((tile) => tile.short).join(", "),
+    amount = sum(due.map((tile) => repayAmount(s.assets[tile.id].loan)));
+  log(s, now, "Konto", `Darlehen fällig: ${p.name} muss ${names} zurückzahlen · ${money(amount)}`);
+  debt(s, amount, null, `Darlehensrückzahlung ${names}`, now, { loans: due.map((tile) => tile.id), resume: true });
+}
+/** Hält eine Darlehensrückzahlung aktuell, falls belehnte Firmen inzwischen verkauft wurden. */
+function refreshLoans(s: Game) {
+  const bill = s.debt, p = current(s);
+  if (!bill?.loans) return;
+  bill.loans = bill.loans.filter((id) => s.assets[id].owner === p.id && s.assets[id].loan);
+  bill.amount = sum(bill.loans.map((id) => repayAmount(s.assets[id].loan)));
+}
+function settled(s: Game, bill: NonNullable<Game["debt"]>, now: number) {
+  for (const id of bill.loans ?? []) {
+    s.assets[id].loan = 0;
+    delete s.assets[id].due;
+  }
+  s.debt = null;
+  if (bill.resume) {
+    // Die Geldbeschaffung hat keine Frist; danach bleibt genug Zeit für den eigentlichen Zug.
+    if (s.turnDeadline) s.turnDeadline = Math.max(s.turnDeadline, now + 20000);
+    phase(s, "roll", now);
+  } else manage(s, now);
+}
+/** Geldbeschaffung während einer Pflichtzahlung; die Schritte sind für alle sichtbar. */
+function fund(s: Game, p: Player, tile: number, op: "loan" | "reduce" | "sell", now: number) {
+  const amount = assetAction(s, p, tile, op, now);
+  if (op === "sell" && s.settings.auctions) (s.saleQueue ??= []).push(tile);
+  if (!s.debt || s.debt.purchase) return;
+  s.debt.steps = [...(s.debt.steps ?? []), { tile, op, amount }];
+  refreshLoans(s);
 }
 function debt(
   s: Game,
@@ -152,13 +197,15 @@ function debt(
   to: string | null,
   reason: string,
   now: number,
+  extra: Partial<NonNullable<Game["debt"]>> = {},
 ) {
   if (amount <= 0) {
     manage(s, now);
     return;
   }
-  s.debt = { amount, to, reason };
-  phase(s, "debt", now, current(s).cash >= amount ? 10 : 40);
+  s.debt = { amount, to, reason, ...extra };
+  // Die Zahlungsfrist läuft nur, solange das Bargeld reicht; die Geldbeschaffung hat keine Frist.
+  phase(s, "debt", now, current(s).cash >= amount ? 10 : 0);
 }
 function transfer(s: Game, p: Player, bill: NonNullable<Game["debt"]>, now: number) {
   book(p, -bill.amount, bill.reason, now);
@@ -218,6 +265,16 @@ function travel(s: Game, distance: number, bonus: boolean, now: number, depth=0,
 function dice(s: Game, rng: Random) {
   return Array.from({ length: s.settings.dice }, () => rng(6) + 1);
 }
+/** START zahlt beim Überqueren einmal, bei direkter Landung doppelt; schwache Plätze erhalten Aufbauhilfe. */
+function startPay(s: Game, p: Player, landed: boolean, now: number) {
+  const live = s.players.filter((other) => !other.out),
+    average = sum(live.map((other) => worth(s, other))) / live.length,
+    help = live.length > 1 && worth(s, p) < average / 2 ? recoveryBonus : 0,
+    bonus = landed ? startBonus * 2 : startBonus;
+  book(p, bonus + help, `START-Bonus${landed ? " ×2" : ""}${help ? " + Aufbauhilfe" : ""}`, now);
+  if (landed || help)
+    log(s, now, "Konto", `${p.name} ${landed ? "landet direkt auf START" : "überquert START"} · +${money(bonus)}${help ? ` + Aufbauhilfe ${money(help)}` : ""}`);
+}
 function resolve(
   s: Game,
   now: number,
@@ -275,8 +332,8 @@ function resolve(
     openCasino(s, now, rng);
     return;
   }
-  if (tile.base) {
-    debt(s, tile.base, null, tile.name, now);
+  if (taxes[p.pos]) {
+    debt(s, taxDue(s, p, p.pos), null, `${tile.name} (${taxes[p.pos].label})`, now);
     return;
   }
   if (tile.name !== "Chance" && tile.name !== "Ereignis") {
@@ -353,35 +410,17 @@ function resolve(
       )
         distance++;
     travel(s,distance,distance>0,now,depth+1,false,true);
-  } else {
-    const value =
-      effect.kind === "cash"
-        ? effect.amount * M
-        : Math.min(
-            (effect.amount > 0 ? 30 : 25) * M,
-            rate(
-              sum(
-                s.assets
-                  .filter(
-                    (asset, index) =>
-                      asset.owner === p.id &&
-                      board[index].group >= 0 &&
-                      board[index].group < 8,
-                  )
-                  .map((asset) => asset.value),
-              ),
-              200,
-            ),
-          ) * Math.sign(effect.amount);
+  } else if (cashEffect(effect)) {
+    const value = cardCash(s, p, effect);
     if (value < 0 && p.cards.includes("C21")) {
       s.reaction = -value;
       phase(s, "insurance", now, 20);
     } else if (value < 0) debt(s, -value, null, drawn.name, now);
-    else {
+    else if (value > 0) {
       book(p, value, drawn.name, now);
       log(s, now, "Konto", `${p.name} erhält ${money(value)} · ${drawn.name}`);
       manage(s, now);
-    }
+    } else manage(s, now);
   }
 }
 function autoPass(s: Game) {
@@ -464,7 +503,7 @@ function settleDebt(s: Game, now: number, rng: Random) {
     p = current(s),
     owned = () => board.filter((tile) => s.assets[tile.id].owner === p.id);
   for (const op of ["reduce", "loan", "sell"] as const) {
-    while (p.cash < pending.amount) {
+    while (p.cash < s.debt!.amount) {
       const tile = owned()
         .sort(
           (left, right) =>
@@ -478,16 +517,16 @@ function settleDebt(s: Game, now: number, rng: Random) {
               : rate(s.assets[tile.id].value, 6000) > s.assets[tile.id].loan,
         );
       if (!tile) break;
-      assetAction(s, p, tile.id, op, now);
-      if(op==="sell" && s.settings.auctions)(s.saleQueue??=[]).push(tile.id);
+      fund(s, p, tile.id, op, now);
     }
   }
-  s.debt = null;
-  if (p.cash >= pending.amount) {
-    transfer(s, p, pending, now);
-    manage(s, now);
+  const bill = s.debt!;
+  if (p.cash >= bill.amount) {
+    if (bill.amount > 0) transfer(s, p, bill, now);
+    settled(s, bill, now);
     return;
   }
+  s.debt = null;
   const target = s.players.find((other) => other.id === pending.to),
     tiles = owned().map((tile) => tile.id);
   if (target) {
@@ -558,7 +597,7 @@ export function tick(source: Game, now: number, rng: Random = secure): Game {
     const arrival=s.arrival; delete s.arrival;
     p.pos=arrival.target;
     if(s.movement) s.movement.stage="Feldauflösung";
-    if(arrival.bonus) book(p,startBonus,"START-Bonus",now);
+    if(arrival.bonus) startPay(s,p,arrival.target===0,now);
     if(arrival.jail) jail(s,now,rng); else resolve(s,now,rng,arrival.depth,arrival.depth>0);
   } else if (s.phase === "manage" && s.saleQueue?.length) {
     const tiles=s.saleQueue;s.saleQueue=[];auction(s,tiles,now,rng);
@@ -830,7 +869,7 @@ export function apply(
       const asset = s.assets[p.pos];
       insist(!asset.owner);
       const discount = cmd.coupon
-        ? Math.min(10 * M, rate(asset.value, 1500))
+        ? Math.min(couponCap, rate(asset.value, 1500))
         : 0;
       if(cmd.coupon) insist(p.cards.includes("C22"));
       insist(p.cash >= asset.value - discount, "Nicht genug Geld für diesen Kauf");
@@ -838,14 +877,22 @@ export function apply(
       phase(s,"debt",now,10);break;
     }
     case "CONFIRM_PAYMENT": {
-      turn();at("debt");const invoice=s.debt;insist(invoice && p.cash>=invoice.amount && now<s.deadline,"Zahlung nicht möglich");
+      turn();at("debt");const invoice=s.debt;insist(invoice && (!s.deadline || now<s.deadline),"Zahlung nicht möglich");
       if(invoice.purchase){
+        insist(p.cash>=invoice.amount,"Zahlung nicht möglich");
         const {tile,coupon}=invoice.purchase;insist(!s.assets[tile].owner && p.pos===tile);
         if(coupon) discard(s,p,"C22");book(p,-invoice.amount,invoice.reason,now);s.assets[tile].owner=id;
         log(s,now,"Konto",`${p.name} kauft ${board[tile].short} für ${money(invoice.amount)}`);
-      } else transfer(s,p,invoice,now);
-      s.debt=null;
-      manage(s, now);
+        s.debt=null;
+        manage(s, now);
+      } else if (p.cash < invoice.amount) {
+        // Ohne genügend Bargeld finanziert die Bank automatisch; reicht der Besitz nicht, folgt der Konkurs.
+        log(s, now, "Konto", `${p.name} überlässt die Finanzierung der Bank`);
+        settleDebt(s, now, rng);
+      } else {
+        transfer(s,p,invoice,now);
+        settled(s, invoice, now);
+      }
       break;
     }
     case "RESIGN":
@@ -883,10 +930,15 @@ export function apply(
     case "ASSET":
       turn();
       at("roll", "debt");
-      if (s.phase === "roll") insist(["build", "loan", "repay"].includes(cmd.op), "Verkauf und Rückbau nur zur Begleichung einer Zahlung");
-      else insist(s.debt && !s.debt.purchase && ["sell", "loan", "reduce"].includes(cmd.op), "Nur zur Begleichung einer offenen Zahlung");
-      assetAction(s, p, cmd.tile, cmd.op, now);
-      if (cmd.op === "sell" && s.settings.auctions) (s.saleQueue ??= []).push(cmd.tile);
+      if (s.phase === "roll") {
+        insist(["build", "loan", "repay"].includes(cmd.op), "Verkauf und Rückbau nur zur Begleichung einer Zahlung");
+        assetAction(s, p, cmd.tile, cmd.op, now);
+        break;
+      }
+      insist(s.debt && !s.debt.purchase && (cmd.op === "sell" || cmd.op === "loan" || cmd.op === "reduce"), "Nur zur Begleichung einer offenen Zahlung");
+      fund(s, p, cmd.tile, cmd.op, now);
+      if (s.debt.loans && !s.debt.loans.length) settled(s, s.debt, now);
+      else if (p.cash >= s.debt.amount && !s.deadline) s.deadline = now + 10000;
       break;
     case "REACT":
       turn();
@@ -895,14 +947,14 @@ export function apply(
         if (cmd.yes) discard(s, p, "C21");
         debt(
           s,
-          Math.max(0, s.reaction - (cmd.yes ? 30 * M : 0)),
+          Math.max(0, s.reaction - (cmd.yes ? insuranceCap : 0)),
           null,
           "Chance: Schaden nach Deckung",
           now,
         );
         s.reaction = 0;
       } else {
-        const amount = cmd.yes ? (rng(2) ? 35 : -20) : 5;
+        const amount = cmd.yes ? (rng(2) ? gamble.win : -gamble.loss) : gamble.safe;
         if (amount < 0) debt(s, -amount * M, null, "Risikokapital-Wette", now);
         else {
           book(p, amount * M, "Risikokapital-Wette", now);

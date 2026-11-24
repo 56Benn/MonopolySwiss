@@ -290,7 +290,20 @@
 
 /* Bus, Brett, Ereigniskarte */
 .app-shell .photo-board>button[data-occupied=true]:not([data-owned=true]) { outline:none; }
-.app-shell .photo-board .flat-token { outline:none; box-shadow:none; }
+.app-shell .photo-board .flat-token { width:clamp(18px,2.7vw,34px); height:clamp(18px,2.7vw,34px); color:#fff; border:2px solid #fffdf2; outline:none; box-shadow:0 2px 5px #000c; }
+.app-shell .photo-board .flat-token[data-token="1"] { color:#1d1606; }
+.app-shell .photo-board .flat-token svg { width:72%; height:72%; filter:drop-shadow(0 1px 0 #0005); }
+.app-shell .photo-board .flat-pieces:has(>:nth-child(3)) .flat-token { width:min(24px,30cqw,44cqh); height:min(24px,30cqw,44cqh); }
+/* Ausbaustufen sitzen im freien Brett-Innenbereich vor dem Feld, wo keine Figuren stehen. */
+.photo-board .flat-level { position:relative; z-index:3; display:flex; align-items:center; justify-content:center; padding:1px 4px; color:#ffd34d; font-size:clamp(10px,1.45vw,17px); line-height:1; text-shadow:0 1px 1px #2b1d00; background:#10241be0; border:1px solid #d8b45a; border-radius:9px; box-shadow:0 2px 4px #0007; pointer-events:none; white-space:nowrap; }
+.photo-board .flat-level i { font-style:normal; }
+.photo-board .flat-level[data-side="0"] { align-self:start; justify-self:center; translate:0 calc(-100% - 4px); }
+.photo-board .flat-level[data-side="2"] { align-self:end; justify-self:center; translate:0 calc(100% + 4px); }
+.photo-board .flat-level:is([data-side="1"],[data-side="3"]) { align-self:center; flex-direction:column; padding:3px 1px; }
+.photo-board .flat-level[data-side="1"] { justify-self:end; translate:calc(100% + 4px) 0; }
+.photo-board .flat-level[data-side="3"] { justify-self:start; translate:calc(-100% - 4px) 0; }
+.photo-board .flat-level[data-hotel] { padding:3px; color:#fff; background:#a3322a; border-color:#ffd34d; }
+.photo-board .flat-level svg { width:clamp(12px,1.7vw,20px); height:clamp(12px,1.7vw,20px); }
 .app-shell .photo-board>button[data-bus=true] { z-index:3; cursor:pointer; outline:4px solid #ffd65a; outline-offset:-4px; box-shadow:inset 0 0 0 999px #ffd65a40; animation:bus-pulse 1.1s ease-in-out infinite; }
 @keyframes bus-pulse { 50% { box-shadow:inset 0 0 0 999px #ffd65a10; } }
 .bus-hint { position:absolute; z-index:7; left:50%; top:30%; translate:-50% 0; max-width:min(420px,calc(100% - 24px)); padding:10px 16px; color:#1d2419; background:#ffd65af0; border-radius:14px; font-weight:800; font-size:14px; text-align:center; box-shadow:0 6px 16px #0007; pointer-events:none; }
@@ -313,8 +326,31 @@
 .system-note small { font-size:10px; opacity:.7; }
 .ledger-row[data-kind] small { text-transform:uppercase; letter-spacing:.05em; }
 .news-item b.positive { color:#7fe0a3; } .news-item b.negative { color:#f19a8b; }
-.tile-hotel { filter:drop-shadow(0 0 2px #ffe08a); }
 .company-choice[data-locked=true] { opacity:.6; }
+.funding-box { margin-top:6px; padding:8px 10px; color:#ffe9de; background:#40231d; border:1px solid #b9675a; border-radius:8px; font-size:13px; }
+.funding-box p { margin:0 0 6px; }
+.funding-box ul { display:grid; gap:3px; margin:0; padding:0; list-style:none; }
+.funding-box li { display:flex; justify-content:space-between; gap:8px; padding:3px 6px; background:#2b1915; border-left:3px solid #e39a5b; border-radius:3px; animation:step-in .4s ease-out both; }
+.funding-box li[data-op=sell] { border-left-color:#e45d4e; }
+.funding-box li[data-op=loan] { border-left-color:#d9b75c; }
+.funding-box li b { color:#9fe3b4; white-space:nowrap; }
+@keyframes step-in { from { opacity:0; transform:translateX(-8px); } }
+.loan-alert { display:flex; gap:8px; margin:8px 0; padding:8px 10px; color:#fff1cf; background:#4a3a14; border:1px solid #d9b75c; border-radius:8px; }
+.loan-alert div { display:grid; gap:3px; min-width:0; }
+.loan-alert button { justify-content:flex-start; min-height:30px; padding:3px 8px; font-size:12px; text-align:left; }
+.loan-alert small { font-size:11px; opacity:.85; }
+.holding[data-due] .holding-main small,.worth-grid small[data-due],.field-deed div[data-due] dd,.field-card div[data-due] dd { color:#f3b54a; font-weight:800; }
+.field-card div[data-due] dd { color:#9a4a10; }
+.link-overlay { position:fixed; inset:0; z-index:200; display:grid; place-items:center; padding:16px; background:#07110cd9; backdrop-filter:blur(3px); }
+.link-card { display:grid; justify-items:center; gap:10px; width:min(360px,100%); padding:22px 20px; color:#f4efe1; text-align:center; background:#1b2b24; border:1px solid #c9a94a; border-radius:12px; box-shadow:0 12px 40px #000a; }
+.link-card svg { color:#f19a8b; }
+.link-card h2 { margin:0; font:700 28px/1 'Barlow Condensed',sans-serif; }
+.link-card p { margin:0; font-weight:700; color:#ffd65a; }
+.link-card small { color:#c9d5cc; font-size:12px; line-height:1.4; }
+.link-card button { min-width:200px; }
+.link-spinner { width:26px; height:26px; border:3px solid #ffffff2a; border-top-color:#ffd65a; border-radius:50%; animation:link-spin .9s linear infinite; }
+@keyframes link-spin { to { transform:rotate(360deg); } }
+@media(prefers-reduced-motion:reduce){ .link-spinner,.funding-box li { animation:none; } }
 .lobby-rules { display:grid; gap:4px; margin:10px 0; padding:0; border:0; }
 .lobby-rules legend { color:var(--gold); font-size:12px; font-weight:800; }
 .rule-group { padding:8px 10px; background:#1b2822; border:1px solid #3c4b40; border-radius:8px; }

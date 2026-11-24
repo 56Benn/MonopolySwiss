@@ -18,7 +18,9 @@ export type Settings = {
   perRound: boolean;
   takeover: boolean;
   competitive: boolean;
+  loanRounds: number;
 };
+export const loanTerms = [3, 4, 5, 6, 8, 10];
 export const defaults: Settings = {
   start: 500,
   dice: 2,
@@ -26,7 +28,7 @@ export const defaults: Settings = {
   goal: 2000,
   hidden: false,
   volatility: "Normal",
-  auto: false,
+  auto: true,
   auctions: true,
   limit: 90,
   rent: 10000,
@@ -35,6 +37,7 @@ export const defaults: Settings = {
   perRound: false,
   takeover: true,
   competitive: false,
+  loanRounds: 5,
 };
 export const presets: Record<string, Settings> = {
   Entspannt: {
@@ -65,6 +68,7 @@ export function validSettings(s: Settings) {
     !["Ruhig", "Normal", "Wild"].includes(s.volatility) ||
     ![0, 90, 120].includes(s.limit) ||
     ![7500, 10000, 12500].includes(s.rent) ||
+    !loanTerms.includes(s.loanRounds) ||
     (
       ["hidden", "auto", "auctions", "full", "even", "perRound", "takeover", "competitive"] as const
     ).some((key) => typeof s[key] !== "boolean")
@@ -92,6 +96,8 @@ export type Asset = {
   owner: string | null;
   value: number;
   loan: number;
+  /** Runde, in der das Darlehen zu Beginn des eigenen Zugs zurückgezahlt werden muss. */
+  due?: number;
   levels: number[];
   history: number[];
 };
@@ -199,7 +205,18 @@ export type Game = {
     passed?: string[];
     resumeRoll?: boolean;
   } | null;
-  debt: { amount: number; to: string | null; reason: string; purchase?: {tile:number;coupon:boolean} } | null;
+  debt: {
+    amount: number;
+    to: string | null;
+    reason: string;
+    purchase?: { tile: number; coupon: boolean };
+    /** Fällige Darlehen, die mit dieser Zahlung getilgt werden. */
+    loans?: number[];
+    /** Nach der Zahlung geht der Zug mit dem Würfeln weiter. */
+    resume?: boolean;
+    /** Öffentlich sichtbare Schritte der Geldbeschaffung. */
+    steps?: { tile: number; op: "loan" | "reduce" | "sell"; amount: number }[];
+  } | null;
   reaction: number;
   winners: string[];
   paused: boolean;

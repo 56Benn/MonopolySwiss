@@ -79,6 +79,16 @@ export function project(s: Game, id: string) {
         }
       : null,
     debt: s.players[s.turn].id === id ? s.debt : null,
+    payment:
+      s.phase === "debt" && s.debt && !s.debt.purchase
+        ? {
+            amount: s.debt.amount,
+            reason: s.debt.reason,
+            to: s.debt.to,
+            raising: s.players[s.turn].cash < s.debt.amount,
+            steps: s.debt.steps ?? [],
+          }
+        : null,
     reaction: s.players[s.turn].id === id ? s.reaction : 0,
     casino: table
       ? {

@@ -1,4 +1,4 @@
-import { board, groups, M, marketBand, money, rate } from "./board.ts";
+import { board, groups, M, marketBand, money, rate, taxes } from "./board.ts";
 import {
   balance,
   book,
@@ -10,7 +10,7 @@ import {
   type Bundle,
   type Trade,
 } from "./model.ts";
-import { card } from "./cards.ts";
+import { card, type CashEffect } from "./cards.ts";
 export const members = (id: number) =>
   board.filter((tile) => tile.group === board[id].group);
 export const complete = (s: Pick<Game, "assets">, id: number) =>
@@ -21,11 +21,13 @@ export const complete = (s: Pick<Game, "assets">, id: number) =>
   );
 export const sum = (values: number[]) =>
   values.reduce((total, value) => total + value, 0);
-export const buildPrice = (value: number) => rate(value, 4500);
+export const buildPrice = (value: number) => rate(value, 4000);
 export const maxLevel = 5;
 export const refundShare = 6000;
+export const loanShare = 5000;
+export const repayAmount = (loan: number) => rate(loan, 11000);
 /** Miete in Basispunkten des aktuellen Werts: ohne Branche, volle Branche, dann Stufe 1–4 und Hotel. */
-export const rentLadder = [600, 1200, 3000, 5500, 9000, 12500, 17000];
+export const rentLadder = [800, 1600, 4000, 8000, 13000, 18000, 24000];
 export const levelName = (level: number) => (level >= maxLevel ? "Hotel" : `${level} Geldstapel`);
 export function quotedRent(
   group: number,
@@ -38,9 +40,9 @@ export function quotedRent(
 ) {
   const base =
     group === 8
-      ? rate(value, [0, 1000, 2000, 4000, 8000][count])
+      ? rate(value, [0, 1200, 2500, 5000, 10000][count])
       : group === 9
-        ? rate(value, count === 2 ? 400 : 160) * dice
+        ? rate(value, count === 2 ? 600 : 250) * dice
         : rate(value, level ? rentLadder[Math.min(level, maxLevel) + 1] : full ? rentLadder[1] : rentLadder[0]);
   return rate(base, factor);
 }
@@ -138,16 +140,52 @@ export function market(
   );
   s.events[s.events.length - 1].changes = changes;
 }
-/** Zieht Kurse jede Runde um 15 % zum Startwert zurück, ohne Marktbewegungen aufzuheben. */
+/** Zieht Kurse jede Runde um 10 % zum Startwert zurück, ohne Marktbewegungen aufzuheben. */
 export function revert(s: Game) {
   for (const tile of board) {
     if (tile.group < 0) continue;
     const asset = s.assets[tile.id],
-      next = asset.value + Math.round((tile.base - asset.value) * 0.15);
+      next = asset.value + Math.round((tile.base - asset.value) * 0.1);
     if (Math.abs(next - asset.value) < M / 10) continue;
     asset.value = next;
     asset.history = [...asset.history, next].slice(-30);
   }
+}
+/** Kleine Branchenbewegung zum Rundenschluss als ein einziger Markteintrag. */
+export function drift(s: Game, moves: number[], now: number) {
+  const changes: NonNullable<Game["events"][number]["changes"]> = [], parts: string[] = [];
+  moves.forEach((pct, group) => {
+    if (!pct) return;
+    for (const tile of board.filter((item) => item.group === group)) {
+      const asset = s.assets[tile.id], old = asset.value;
+      asset.value = Math.min(rate(tile.base, marketBand[1]), Math.max(rate(tile.base, marketBand[0]), rate(old, 10000 + pct * 100)));
+      asset.history = [...asset.history, asset.value].slice(-30);
+      changes.push({ tile: tile.id, before: old, after: asset.value });
+    }
+    parts.push(`${groups[group]} ${pct > 0 ? "+" : "−"}${Math.abs(pct)} %`);
+  });
+  if (!parts.length) return;
+  log(s, now, "Markt", parts.join(", "), "Rundenschluss");
+  s.events[s.events.length - 1].changes = changes;
+}
+export function taxDue(s: Game, p: Player, id: number) {
+  const tax = taxes[id], basis = tax.basis === "cash" ? p.cash : worth(s, p);
+  return Math.max(board[id].base, Math.round(rate(Math.max(0, basis), tax.bps) / M) * M);
+}
+/** Betrag einer Geldkarte für diesen Platz, auf ganze Millionen gerundet; negativ bei Belastung. */
+export function cardCash(s: Game, p: Player, effect: CashEffect) {
+  const size = Math.abs(effect.amount),
+    mine = s.assets.filter((asset) => asset.owner === p.id);
+  const raw =
+    effect.kind === "cash"
+      ? size * M
+      : effect.kind === "portfolio"
+        ? rate(sum(mine.filter((asset) => board[s.assets.indexOf(asset)].group < 8).map((asset) => asset.value)), size * 100)
+        : effect.kind === "wealth"
+          ? rate(p.cash, size * 100)
+          : sum(mine.map((asset) => asset.levels.length)) * size * M;
+  const bounded = Math.min(effect.cap ? effect.cap * M : Infinity, Math.max(effect.min ? effect.min * M : 0, raw));
+  return Math.sign(effect.amount) * Math.round(bounded / M) * M;
 }
 export function buildBlock(s: Pick<Game, "assets" | "settings" | "builds">, owner: string, id: number) {
   const asset = s.assets[id],
@@ -175,17 +213,19 @@ export function assetAction(
     .filter((tile) => s.assets[tile.id].owner === p.id)
     .map((tile) => s.assets[tile.id]);
   const levels = asset.levels.length,
-    price = buildPrice(asset.value);
+    price = buildPrice(asset.value),
+    before = p.cash,
+    short = board[id].short;
   if (op === "build") {
     const blocked = buildBlock(s, p.id, id);
     if (blocked) throw Error(blocked);
     if (balance(s, p.id) < price) throw Error("Nicht genügend freies Guthaben");
-    book(p, -price, `Ausbau ${board[id].short}`, now);
+    book(p, -price, `Ausbau ${short}`, now);
     asset.levels.push(price);
     const key = `${p.id}:${board[id].group}`;
     s.builds = { ...(s.builds ?? {}), [key]: (s.builds?.[key] ?? 0) + 1 };
     s.turnBuilds = (s.turnBuilds ?? 0) + 1;
-    log(s, now, "Konto", `${p.name} baut ${board[id].short} aus (${levelName(asset.levels.length)})`);
+    log(s, now, "Konto", `${p.name} baut ${short} aus (${levelName(asset.levels.length)})`);
   } else if (op === "reduce") {
     if (
       !levels ||
@@ -195,30 +235,38 @@ export function assetAction(
     book(
       p,
       rate(asset.levels.pop()!, refundShare),
-      `Rückbau ${board[id].short}`,
+      `Rückbau ${short}`,
       now,
     );
+    log(s, now, "Konto", `${p.name} verkauft eine Ausbaustufe von ${short} · +${money(p.cash - before)}`);
   } else if (op === "loan") {
     if (asset.loan || family.some((other) => other.levels.length))
       throw Error("Zuerst Branche zurückbauen oder Darlehen tilgen");
-    asset.loan = rate(asset.value, 5000);
-    book(p, asset.loan, `Beleihung ${board[id].short}`, now);
+    asset.loan = rate(asset.value, loanShare);
+    asset.due = s.round + (s.settings.loanRounds ?? 5);
+    book(p, asset.loan, `Beleihung ${short}`, now);
+    log(s, now, "Konto", `${p.name} beleiht ${short} · +${money(asset.loan)} · fällig in Runde ${asset.due}`);
   } else if (op === "repay") {
     if (!asset.loan) throw Error("Kein Darlehen");
-    book(p, -rate(asset.loan, 11000), `Tilgung ${board[id].short}`, now);
+    book(p, -repayAmount(asset.loan), `Tilgung ${short}`, now);
     asset.loan = 0;
+    delete asset.due;
+    log(s, now, "Konto", `${p.name} tilgt das Darlehen auf ${short} · ${money(before - p.cash)}`);
   } else if (op === "sell") {
     if (family.some((other) => other.levels.length))
       throw Error("Zuerst Branche zurückbauen");
     book(
       p,
       rate(asset.value, 6000) - asset.loan,
-      `Bankverkauf ${board[id].short}`,
+      `Bankverkauf ${short}`,
       now,
     );
     asset.owner = null;
     asset.loan = 0;
+    delete asset.due;
+    log(s, now, "Konto", `${p.name} verkauft ${short} an die Bank · +${money(p.cash - before)}`);
   } else throw Error("Unbekannte Verwaltung");
+  return p.cash - before;
 }
 function bundleOK(s: Game, p: Player, b: Bundle) {
   if (

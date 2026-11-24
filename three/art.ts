@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { board, colours, tokenColors } from "../game/board";
-import { fieldAmount, fieldName, fieldPrint } from "../ui/fieldPrint";
+import { fieldAmount, fieldName, fieldPrice, fieldPrint } from "../ui/fieldPrint";
 import { boardIdentity } from "../ui/boardIdentity";
 export const pos = (id: number): [number, number] => {
   const side = Math.floor(id / 10),
@@ -165,7 +165,7 @@ export function boardArt(values: number[], owners: number[], logos?: ReadonlyMap
       );
       ctx.font = `bold ${special ? 13 : 18}px sans-serif`;
       ctx.fillText(
-        tile.base ? fieldAmount(values[tile.id] ?? tile.base) : "KARTE",
+        tile.base ? fieldPrice(tile, values[tile.id] ?? tile.base) : "KARTE",
         width / 2,
         149,
         width - 16,

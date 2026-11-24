@@ -24,7 +24,9 @@ export function actor(s: Game, now: number) {
           ? { type: "ROLL_DICE" }
           : s.phase === "buy"
             ? { type: "DECLINE" }
-            : null;
+            : s.phase === "debt"
+              ? { type: "CONFIRM_PAYMENT" }
+              : null;
     if (cmd && (!pending || cmd.type === "TRADE")) return { id: p.id, cmd };
   }
   return null;

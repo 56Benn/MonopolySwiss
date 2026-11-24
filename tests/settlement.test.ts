@@ -169,7 +169,7 @@ test("Gebot reserviert einmal, Auktion endet erst nach allen Pässen und Zuschla
   assert.equal(s.assets[1].owner, "b");
   assert.equal(tick(s, 20001).players[1].cash, 17 * M);
 });
-test("Ausbau: 45 % je Stufe, gleichmässig, eine Stufe je Branche und Runde, Hotel als fünfte Stufe", () => {
+test("Ausbau: 40 % je Stufe, gleichmässig, eine Stufe je Branche und Runde, Hotel als fünfte Stufe", () => {
   const p = player("a", "Anna", 0), q = player("b", "Lara", 1);
   p.cash = q.cash = 2000 * M;
   let s = newGame(p);
@@ -179,7 +179,7 @@ test("Ausbau: 45 % je Stufe, gleichmässig, eine Stufe je Branche und Runde, Hot
   s.assets[1].owner = s.assets[3].owner = "a";
   s.settings.perRound = true;
   s = apply(s, "a", { type: "ASSET", tile: 1, op: "build" }, 1);
-  assert.equal(s.players[0].cash, 2000 * M - 13.5 * M);
+  assert.equal(s.players[0].cash, 2000 * M - 12 * M);
   assert.throws(() => apply(s, "a", { type: "ASSET", tile: 3, op: "build" }, 2), /Runde/);
   s.settings.perRound = false;
   assert.throws(() => apply(s, "a", { type: "ASSET", tile: 1, op: "build" }, 3), /Gleichmässig/);

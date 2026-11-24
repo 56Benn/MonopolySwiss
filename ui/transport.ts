@@ -5,7 +5,8 @@ import { actor, advance, botReadyAt } from "../game/scheduler";
 import { migrateBoard, openTrade, tradeWindow, type Game, type Command } from "../game/model";
 import { watchDevice, type Presence } from "./presence";
 export type Mode = "local" | "create" | "join" | "resume";
-export type Channel = { send: (cmd: Command) => void; close: () => void; activity?: (activity: "trade" | null) => void };
+export type Link = { state: "online" | "connecting" | "lost" | "closed"; attempt: number; retryAt: number };
+export type Channel = { send: (cmd: Command) => void; close: () => void; activity?: (activity: "trade" | null) => void; reconnect?: () => void };
 type Sink = (v: View) => void;
 type Notice = (message: string) => void;
 type PresenceSink = (presence: Record<string, Presence>) => void;
@@ -21,6 +22,7 @@ export async function connect(
   restore = false,
   photo?: string,
   presence: PresenceSink = () => {},
+  link: (state: Link) => void = () => {},
 ): Promise<Channel> {
   let closed = false;
   if (mode === "local") {
@@ -50,7 +52,7 @@ export async function connect(
             pending ? pending.time + tradeWindow : state.deadline || (state.phase === "manage" ? now : Infinity),
             bot
               ? Math.max(
-                  now + (["CASINO_ENTER", "CASINO_JOIN", "PLACE_CASINO_BET"].includes(bot.cmd.type) ? 450 : 1100),
+                  now + (["CASINO_ENTER", "CASINO_JOIN", "PLACE_CASINO_BET"].includes(bot.cmd.type) ? 450 : 800),
                   bot.cmd.type === "ROLL_DICE" ||
                     bot.cmd.type === "BUY_COMPANY" ||
                     bot.cmd.type === "DECLINE"
@@ -128,6 +130,7 @@ export async function connect(
     timer: ReturnType<typeof setTimeout>,
     rtt: number | null = null,
     activity: "trade" | null = null,
+    heard = Date.now(),
     device: Omit<Presence, "rtt"> | undefined;
   const report = () => {
     if (device && socket?.readyState === 1) socket.send(JSON.stringify({ presence: { ...device, rtt, activity } }));
@@ -139,20 +142,47 @@ export async function connect(
   let pulses = 0;
   const pinger = setInterval(() => {
     if (socket?.readyState !== 1) return;
+    // Ohne Antwort auf mehrere Pings gilt die Verbindung als tot, auch wenn der Browser sie noch offen hält.
+    if (Date.now() - heard > 13000) {
+      drop();
+      return;
+    }
     socket.send(JSON.stringify({ ping: performance.now() }));
     if (++pulses % 4 === 0) report();
   }, 4000);
+  const lost = () => {
+    if (closed) return;
+    clearTimeout(timer);
+    const wait = Math.min(15000, 600 * 2 ** retries++);
+    status("Verbindung unterbrochen");
+    link({ state: "lost", attempt: retries, retryAt: Date.now() + wait });
+    timer = setTimeout(open, wait);
+  };
+  const drop = () => {
+    if (socket) {
+      socket.onclose = null;
+      socket.close();
+    }
+    lost();
+  };
   const open = () => {
     if (closed) return;
+    clearTimeout(timer);
     status(retries ? "Verbindung wird wiederhergestellt" : "Verbinden");
+    link({ state: "connecting", attempt: retries, retryAt: 0 });
+    const previous = socket;
+    if (previous) previous.onclose = null;
+    previous?.close();
     socket = new WebSocket(
       `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/api/socket?code=${info.code}&game=${info.game}`,
     );
     socket.onopen = () => {
+      heard = Date.now();
       socket.send(JSON.stringify({ ping: performance.now() }));
       report();
     };
     socket.onmessage = (event) => {
+      heard = Date.now();
       const packet = JSON.parse(event.data);
       if (typeof packet.pong === "number") {
         const measured = performance.now() - packet.pong;
@@ -177,6 +207,7 @@ export async function connect(
         } as View;
         sink(latest);
         status("Online");
+        link({ state: "online", attempt: 0, retryAt: 0 });
         retries = 0;
       }
       if (packet.error) notice(packet.error);
@@ -186,12 +217,21 @@ export async function connect(
       if (event.code === 1008) {
         notice("Dieser Platz ist nicht mehr verfügbar.");
         status("Getrennt");
+        link({ state: "closed", attempt: retries, retryAt: 0 });
         return;
       }
-      status("Verbindung unterbrochen");
-      timer = setTimeout(open, Math.min(15000, 600 * 2 ** retries++));
+      lost();
     };
   };
+  const offline = () => drop();
+  const online = () => {
+    if (socket?.readyState !== 1) {
+      retries = Math.max(retries, 1);
+      open();
+    }
+  };
+  window.addEventListener("offline", offline);
+  window.addEventListener("online", online);
   open();
   return {
     send: (cmd) => {
@@ -213,12 +253,18 @@ export async function connect(
       clearTimeout(timer);
       clearInterval(pinger);
       stopDevice();
+      window.removeEventListener("offline", offline);
+      window.removeEventListener("online", online);
       socket?.close();
     },
     activity: (next) => {
       if (next === activity) return;
       activity = next;
       report();
+    },
+    reconnect: () => {
+      retries = Math.max(retries, 1);
+      open();
     },
   };
 }

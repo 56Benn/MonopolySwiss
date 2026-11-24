@@ -5,6 +5,7 @@ import { apply, tick, player, newGame } from "../game/engine.ts";
 import { validSettings, defaults,migrateBoard } from "../game/model.ts";
 import { rollDistance } from "../game/dice.ts";
 import { advance } from "../game/scheduler.ts";
+import { project } from "../game/view.ts";
 test("Bots spielen mit Bus, Auktionen ohne Frist und Bauregeln mehrere Runden ohne Blockade", () => {
   const bots = ["Einfach", "Mittel", "Schwer"].map((level, index) => player(`bot${index}`, `Bot ${index}`, index, level as "Einfach" | "Mittel" | "Schwer"));
   let s = newGame(bots[0]);
@@ -56,7 +57,7 @@ test("Dritter Würfel bewegt, dritter Pasch versetzt vor Bewegung in Haft", () =
   assert.equal(s.players[0].pos,35);
   s=tick(s,s.deadline);
   assert.equal(s.players[0].pos, 2);
-  assert.equal(s.players[0].cash, 550 * M);
+  assert.equal(s.players[0].cash, 580 * M);
   assert.equal(s.extra, true);
   s.phase = "roll";
   s.doubles = 2;
@@ -66,7 +67,7 @@ test("Dritter Würfel bewegt, dritter Pasch versetzt vor Bewegung in Haft", () =
   assert.equal(s.extra, false);
   assert.equal(s.players[0].jail, 3);
 });
-test("Haft-Pasch gibt keinen weiteren Wurf; START-Karte zahlt einmal", () => {
+test("Haft-Pasch gibt keinen weiteren Wurf; Landung auf START per Karte zahlt doppelt", () => {
   let s = table();
   s.players[0].jail = 2;
   s.players[0].pos = 10;
@@ -80,9 +81,77 @@ test("Haft-Pasch gibt keinen weiteren Wurf; START-Karte zahlt einmal", () => {
   s = apply(s, "a", { type: "ROLL_DICE" }, 0, () => 0);
   s=tick(s,s.deadline);assert.equal(s.players[0].pos,7);assert.equal(s.players[0].cash,500*M);s=tick(s,s.deadline);
   assert.equal(s.players[0].pos, 0);
-  assert.equal(s.players[0].cash, 550 * M);
+  assert.equal(s.players[0].cash, 660 * M);
+  assert.match(s.events.at(-1)!.text, /landet direkt auf START · \+160M/);
 });
-test("Schuldenfrist unabhängig vom Zuglimit, Konkurs beendet sofort", () => {
+test("Aufbauhilfe bei START nur für deutlich ärmere Plätze", () => {
+  let s = table();
+  s.players[0].cash = 100 * M;
+  s.players[1].cash = 900 * M;
+  s.players[0].pos = 36;
+  s = apply(s, "a", { type: "ROLL_DICE" }, 0, () => 1);
+  s = tick(s, s.deadline);
+  assert.equal(s.players[0].pos, 0);
+  assert.equal(s.players[0].cash, 100 * M + 160 * M + 40 * M);
+  assert.match(s.players[0].ledger.at(-1)!.reason, /START-Bonus ×2 \+ Aufbauhilfe/);
+});
+test("Darlehen: Erinnerung eine Runde vorher, dann Pflichtzahlung vor dem Würfeln", () => {
+  let s = table();
+  s.round = 1;
+  s.assets[3].owner = "a";
+  s = apply(s, "a", { type: "ASSET", tile: 3, op: "loan" }, 0);
+  assert.equal(s.assets[3].due, 6);
+  s.turn = 1;
+  s.round = 4;
+  s.phase = "manage";
+  s.deadline = 1;
+  s = tick(s, 1);
+  assert.equal(s.round, 5);
+  assert.equal(s.phase, "roll");
+  assert.match(s.events.at(-1)!.text, /Erinnerung: Darlehen Swisscom von Anna ist nächste Runde fällig · 19\.8M/);
+  s.turn = 1;
+  s.phase = "manage";
+  s.deadline = 2;
+  s = tick(s, 2);
+  assert.equal(s.round, 6);
+  assert.equal(s.phase, "debt");
+  assert.deepEqual(s.debt?.loans, [3]);
+  assert.equal(s.debt?.amount, 19.8 * M);
+  assert.ok(s.deadline > 2);
+  s = apply(s, "a", { type: "CONFIRM_PAYMENT" }, 3);
+  assert.equal(s.assets[3].loan, 0);
+  assert.equal(s.assets[3].due, undefined);
+  assert.equal(s.phase, "roll");
+  assert.equal(s.players[0].cash, 500 * M + 18 * M - 19.8 * M);
+});
+test("Ohne genügend Geld läuft keine Zahlungsfrist; erst gedeckte Zahlungen haben 10 Sekunden", () => {
+  let s = table();
+  s.players[0].cash = 10 * M;
+  s.players[0].pos = 1;
+  s.assets[1].owner = s.assets[3].owner = "b";
+  s.assets[3].levels = [M, M, M];
+  s.assets[6].owner = s.assets[8].owner = "a";
+  s = apply(s, "a", { type: "ROLL_DICE" }, 0, () => 0);
+  s = tick(s, s.deadline);
+  assert.equal(s.phase, "debt");
+  assert.equal(s.debt?.amount, 46.8 * M);
+  assert.equal(s.deadline, 0);
+  assert.equal(tick(s, 10_000_000), s);
+  const watcher = project(s, "b");
+  assert.equal(watcher.debt, null);
+  assert.equal(watcher.payment?.raising, true);
+  s = apply(s, "a", { type: "ASSET", tile: 6, op: "loan" }, 100);
+  assert.equal(s.deadline, 0);
+  assert.deepEqual(project(s, "b").payment?.steps, [{ tile: 6, op: "loan", amount: 23 * M }]);
+  assert.match(s.events.at(-1)!.text, /Anna beleiht Swatch/);
+  s = apply(s, "a", { type: "ASSET", tile: 8, op: "loan" }, 200);
+  assert.equal(project(s, "b").payment?.raising, false);
+  assert.equal(s.deadline, 10200);
+  s = tick(s, 10200);
+  assert.equal(s.phase, "manage");
+  assert.equal(s.players[1].cash, 5468 * (M / 10));
+});
+test("Ohne Deckung keine Frist, Konkurs nur auf Wunsch oder per Bot-Übernahme", () => {
   let s = table();
   s.settings.limit = 0;
   s.settings.win = "first";
@@ -91,12 +160,15 @@ test("Schuldenfrist unabhängig vom Zuglimit, Konkurs beendet sofort", () => {
   s = apply(s, "a", { type: "ROLL_DICE" }, 0, () => 0);
   const arrival=s.deadline;s=tick(s,arrival);
   assert.equal(s.phase, "debt");
-  assert.equal(s.deadline, arrival+40000);
-  s = tick(s, s.deadline);
+  assert.equal(s.deadline, 0);
+  assert.equal(s.debt?.amount, 20 * M);
+  assert.equal(tick(s, arrival + 999_999), s);
+  s = apply(s, "a", { type: "CONFIRM_PAYMENT" }, arrival + 1000);
   assert.equal(s.phase, "over");
   assert.deepEqual(s.winners, ["b"]);
   assert.equal(s.auction, null);
   assert.throws(() => validSettings({ ...defaults, win: "goal", goal: 500 }));
+  assert.throws(() => validSettings({ ...defaults, loanRounds: 7 }));
 });
 test("Casino: Bonus, Einladung, Teilnahme, Einsatzgrenze und genau eine Abrechnung", () => {
   let s = table();
@@ -141,9 +213,9 @@ test("Pflichtzahlung wartet auf Bestätigung; Aufgabe gibt Besitz an die Bank", 
   assert.equal(s.players[0].cash, 500 * M);
   assert.throws(() => apply(s, "b", { type: "CONFIRM_PAYMENT" }, s.deadline - 1));
   s = apply(s, "a", { type: "CONFIRM_PAYMENT" }, s.deadline - 1);
-  assert.equal(s.players[0].cash, 420 * M);
+  assert.equal(s.players[0].cash, 450 * M);
   assert.equal(s.phase, "manage");
-  assert.match(s.events.at(-1)!.text, /Anna zahlt 80M · Einkommenssteuer/);
+  assert.match(s.events.at(-1)!.text, /Anna zahlt 50M · Einkommenssteuer \(10 % des Bargelds\)/);
   const game = table();
   game.players.push(player("c", "Carla", 2));
   game.assets[3].owner = "a";

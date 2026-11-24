@@ -28,7 +28,8 @@ import {
   WifiOff,
 } from "lucide-react";
 import { board, colours, M, money, tokenColors } from "../game/board";
-import { card } from "../game/cards";
+import { card, gamble } from "../game/cards";
+import { repayAmount } from "../game/economy";
 import type { View } from "../game/view";
 import type { Bundle } from "../game/model";
 import { Avatar, type Sender } from "./panels";
@@ -36,7 +37,7 @@ import { FieldEmblem } from "./FieldTile";
 import { signalBars, signalText, type Presence } from "./presence";
 import { BankSettlement, PaidScreen, TransferSheet, type PayRequest, type Receipt } from "./Settlement";
 import type { useTrip } from "./TurnDisplay";
-import { Chats, News, Portfolio, Trading } from "./HandsetApps";
+import { Chats, News, Portfolio, Trading, loanDue } from "./HandsetApps";
 import { emptyDraft, type Note, type Page, type Tab, type TradeDraft } from "./handsetTypes";
 
 type Trip = ReturnType<typeof useTrip>;
@@ -121,7 +122,7 @@ function RollButton({ send }: { send: Sender }) {
       const target = event.target instanceof HTMLElement ? event.target : null;
       if (target?.closest("input, textarea, select, [contenteditable=true], [role=slider], dialog, .field-card")) return;
       if (target?.closest("button, a") && !target.closest(".phone-tabs, .roll-button")) return;
-      if (document.querySelector("dialog[open], .casino-invite, .field-decision")) return;
+      if (document.querySelector("dialog[open], .casino-invite, .field-decision, .link-overlay")) return;
       event.preventDefault();
       send({ type: "ROLL_DICE" });
     };
@@ -137,7 +138,7 @@ export function activityText(v: View, presence: Record<string, Presence>) {
   if (v.tradeUntil) return "Eine Handelsanfrage wartet auf Antwort";
   if (v.casino) return "Casino-Runde läuft";
   if (v.phase === "auction") return `${verb("nimmst", "nimmt")} an einer Auktion teil`;
-  if (v.phase === "debt") return `${verb("machst", "macht")} eine Zahlung`;
+  if (v.phase === "debt") return v.payment?.raising ? `${verb("beschaffst", "beschafft")} Geld für eine Zahlung` : `${verb("machst", "macht")} eine Zahlung`;
   if (v.phase === "bus") return `${verb("wählst", "wählt")} ein Busziel`;
   if (v.phase === "travel") return `${verb("fährst", "fährt")} über das Brett`;
   if (v.phase === "buy") return `${verb("entscheidest", "entscheidet")} über einen Kauf`;
@@ -175,8 +176,9 @@ function TurnActions({ v, send, trip, pay, home, toCasino, status }: { v: View; 
     </div>}
     {!active && v.phase === "bus" && <p className="turn-note">{status}</p>}
     {active && v.phase === "buy" && <p className="turn-note">Entscheide auf dem Brett, ob du kaufst.</p>}
-    {active && v.phase === "debt" && <p className="turn-note">Bestätige die Überweisung im Handy.</p>}
-    {active && v.phase === "choice" && <>{button("Sicher +5M", { type: "REACT", yes: false })}{button("50/50: +35M oder −20M", { type: "REACT", yes: true })}</>}
+    {active && v.phase === "debt" && <p className="turn-note">{v.payment?.raising ? "Beschaffe das fehlende Geld im Handy. Solange es fehlt, läuft keine Frist." : "Bestätige die Überweisung im Handy."}</p>}
+    {!active && v.phase === "debt" && v.payment && <FundingBox v={v} />}
+    {active && v.phase === "choice" && <>{button(`Sicher +${gamble.safe}M`, { type: "REACT", yes: false })}{button(`50/50: +${gamble.win}M oder −${gamble.loss}M`, { type: "REACT", yes: true })}</>}
     {active && v.phase === "insurance" && <>{button("Versicherung einsetzen", { type: "REACT", yes: true })}{button("Schaden selbst bezahlen", { type: "REACT", yes: false })}</>}
     {active && v.phase === "manage" && <p className="turn-note">{v.extra ? "Pasch! Dein Zusatzwurf folgt automatisch." : "Der nächste Platz übernimmt automatisch."}</p>}
     {!active && !["auction", "bus"].includes(v.phase) && <p className="turn-note activity" role="status">{status}</p>}
@@ -191,6 +193,14 @@ function TurnActions({ v, send, trip, pay, home, toCasino, status }: { v: View; 
       </>}
     </div>}
   </>;
+}
+function FundingBox({ v }: { v: View }) {
+  const payment = v.payment!, p = v.players[v.turn], to = v.players.find((person) => person.id === payment.to)?.name ?? "Spielbank";
+  const verbs = { loan: "beleiht", reduce: "verkauft eine Ausbaustufe von", sell: "verkauft an die Bank:" } as const;
+  return <div className="funding-box" role="status" aria-live="polite">
+    <p><b>{payment.raising ? `${p.name} beschafft Geld` : `${p.name} kann jetzt zahlen`}</b><br />{money(payment.amount)} · {payment.reason} → {to}</p>
+    {payment.steps.length > 0 ? <ul>{payment.steps.map((step, index) => <li key={index} data-op={step.op}>{verbs[step.op]} {board[step.tile].short}<b>+{money(step.amount)}</b></li>)}</ul> : payment.raising && <small>Noch nichts beliehen oder verkauft.</small>}
+  </div>;
 }
 function TurnCard(props: { v: View; send: Sender; trip: Trip; pay: (request: PayRequest) => void; pick: (id: number) => void; home: () => void; toCasino: () => void; status: string }) {
   const { v, trip, pick } = props, p = v.players[v.turn], active = p.id === v.me;
@@ -284,6 +294,17 @@ export function TradeDecision({ v, send }: { v: View; send: Sender }) {
     <div className="deal-sides"><div><small>DU GIBST</small>{list(incoming ? trade.want : trade.give)}</div><div><small>DU ERHÄLTST</small>{list(incoming ? trade.give : trade.want)}</div></div>
     {incoming && <div className="deal-buttons"><button disabled={!remaining} onClick={() => send({ type: "TRADE", id: trade.id, op: "reject" })}>Ablehnen</button><button className="primary" disabled={!remaining} onClick={() => send({ type: "TRADE", id: trade.id, op: "accept" })}>Annehmen</button></div>}
     <p className="muted-line">Ohne Antwort wird die Anfrage automatisch abgelehnt.</p>
+  </section>;
+}
+function LoanAlert({ v, pick }: { v: View; pick: (id: number) => void }) {
+  const urgent = board.filter((tile) => v.assets[tile.id].owner === v.me && loanDue(v, tile.id)?.urgent);
+  if (!urgent.length || v.phase === "over") return null;
+  return <section className="loan-alert" role="alert">
+    <TriangleAlert size={17} />
+    <div><b>Darlehen bald fällig</b>
+      {urgent.map((tile) => <button key={tile.id} onClick={() => pick(tile.id)}>{tile.short}: {money(repayAmount(v.assets[tile.id].loan))} · {loanDue(v, tile.id)!.text}</button>)}
+      <small>Tilge vor dem Würfeln über die Feldkarte, sonst wird die Rückzahlung zu Zugbeginn Pflicht.</small>
+    </div>
   </section>;
 }
 function NoteBanner({ note, dismiss, open }: { note: Note; dismiss: () => void; open: () => void }) {
@@ -383,6 +404,7 @@ export function Handset(props: HandsetProps) {
               <div><small>DEIN KONTO</small><Balance value={v.own.cash} effects={effects} /></div>
               <button onClick={() => setPage("Transaktionen")}>Transaktionen ansehen</button>
             </section>
+            <LoanAlert v={v} pick={pick} />
             <TurnCard v={v} send={send} trip={trip} pay={pay} pick={pick} home={props.home} toCasino={props.toCasino} status={status} />
             <Seats v={v} presence={presence} tradeWith={tradeWith} />
             <TableVotes v={v} send={send} />

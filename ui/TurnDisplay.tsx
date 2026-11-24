@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Dices, Layers3 } from "lucide-react";
-import { board, money, M } from "../game/board";
-import { card } from "../game/cards";
+import { board, money } from "../game/board";
+import { card, cashEffect, effectText, gamble } from "../game/cards";
 import { diceText, moveMs, revealMs, travelTime } from "../game/dice";
 import type { View } from "../game/view";
 
@@ -16,13 +16,16 @@ export function cardLines(v: View) {
       return match ? `${match[1]} ${match[2] === "+" ? "steigt" : "fällt"} um ${match[3]} %.` : event.text;
     });
   }
-  if (effect.kind === "cash")
-    return [effect.amount > 0 ? `${me ? "Du erhältst" : `${p.name} erhält`} CHF ${money(effect.amount * M)}.` : `${me ? "Du musst" : `${p.name} muss`} CHF ${money(-effect.amount * M)} bezahlen.`];
-  if (effect.kind === "portfolio")
-    return [effect.amount > 0 ? `${me ? "Du erhältst" : `${p.name} erhält`} ${effect.amount} % des eigenen Firmenwerts (höchstens CHF 30M).` : `${me ? "Du musst" : `${p.name} muss`} ${-effect.amount} % des eigenen Firmenwerts bezahlen (höchstens CHF 25M).`];
+  if (cashEffect(effect)) {
+    const formula = effectText(effect),
+      gain = effect.amount > 0,
+      booked = gain ? [...v.events].reverse().find((event) => event.text.endsWith(`· ${drawn.name}`))?.text.match(/erhält (\S+) ·/)?.[1] : v.payment?.reason === drawn.name ? money(v.payment.amount) : null;
+    const sentence = gain ? `${me ? "Du erhältst" : `${p.name} erhält`} ${formula}.` : `${me ? "Du musst" : `${p.name} muss`} ${formula} bezahlen.`;
+    return effect.kind !== "cash" && booked ? [sentence, `Das sind ${booked}.`] : [sentence];
+  }
   if (effect.kind === "move") return [`${me ? "Du" : p.name} ${moves[effect.target].replace(/^fährt/, me ? "fährst" : "fährt").replace(/^geht/, me ? "gehst" : "geht").replace(/^muss/, me ? "musst" : "muss")}.`];
   if (effect.kind === "keep") return [me ? "Diese Karte bleibt in deiner Hand." : `${p.name} behält diese Karte.`];
-  return [`${me ? "Du wählst" : `${p.name} wählt`}: sicher CHF 5M oder 50/50 +35M bzw. −20M.`];
+  return [`${me ? "Du wählst" : `${p.name} wählt`}: sicher ${gamble.safe}M oder 50/50 +${gamble.win}M bzw. −${gamble.loss}M.`];
 }
 
 export function useTrip(v: View | null) {

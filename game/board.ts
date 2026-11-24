@@ -1,12 +1,13 @@
 export const M = 100_000_000;
-export const tokens = ["Gipfel", "Express", "Uhr", "Koffer", "Turm", "Diamant"];
+export const tokens = ["Gipfel", "Bus", "Uhr", "Koffer", "Turm", "Diamant"];
+/** Kräftige, klar unterscheidbare Farben; kein Weiss, da es auf Brett und Feldern verschwindet. */
 export const tokenColors = [
-  "#ed6553",
-  "#d8b15c",
-  "#48ab91",
-  "#6b9dc0",
-  "#ba90a7",
-  "#e7e1cf",
+  "#e5483b",
+  "#f2b230",
+  "#27a866",
+  "#2f7fe0",
+  "#d4469e",
+  "#8a55e0",
 ];
 export const groups = [
   "ICT (CH)",
@@ -44,7 +45,7 @@ const rows: [string, string, number, number][] = [
   ["Logitech International", "Logitech", 0, 30],
   ["Ereignis", "Ereignis", -1, 0],
   ["Swisscom", "Swisscom", 0, 36],
-  ["Einkommenssteuer", "Steuer", -1, 80],
+  ["Einkommenssteuer", "Steuer", -1, 20],
   ["Flughafen Genf", "Airport Genf", 8, 60],
   ["Swatch Group", "Swatch", 1, 46],
   ["Chance", "Chance", -1, 0],
@@ -78,7 +79,7 @@ const rows: [string, string, number, number][] = [
   ["Los Angeles International Airport", "Airport LAX", 8, 75],
   ["Chance", "Chance", -1, 0],
   ["Microsoft", "Microsoft", 7, 165],
-  ["Vermögenssteuer", "Steuer", -1, 60],
+  ["Vermögenssteuer", "Steuer", -1, 30],
   ["Apple", "Apple", 7, 180],
 ];
 export const board: Tile[] = rows.map(([name, short, group, price], id) => ({
@@ -108,4 +109,11 @@ export const money = (value: number) => {
 };
 /** Marktwerte bleiben innerhalb 70–150 % des Startwerts, damit die Brettprogression erhalten bleibt. */
 export const marketBand = [7000, 15000] as const;
-export const startBonus = 50 * M;
+export const startBonus = 80 * M;
+/** Zusatz bei START für Plätze unter der Hälfte des durchschnittlichen Nettovermögens. */
+export const recoveryBonus = 40 * M;
+/** Steuerfelder: Anteil in Basispunkten von Bargeld bzw. Nettovermögen; tile.base ist der Mindestbetrag. */
+export const taxes: Record<number, { bps: number; basis: "cash" | "worth"; label: string }> = {
+  4: { bps: 1000, basis: "cash", label: "10 % des Bargelds" },
+  38: { bps: 400, basis: "worth", label: "4 % des Nettovermögens" },
+};

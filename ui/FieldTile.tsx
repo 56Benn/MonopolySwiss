@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { type Tile, colours } from "../game/board";
-import { fieldAmount, fieldName, fieldPrint } from "./fieldPrint";
+import { fieldName, fieldPrice, fieldPrint, fieldAmount } from "./fieldPrint";
 import { companyLogo, isSurveyPhoto, siteCaption, sitePhoto } from "./companyLogos";
 
 export function FieldEmblem({ tile, owner }: { tile: Tile; owner?: number }) {
@@ -57,7 +57,7 @@ export function FieldTile({
   const width = corner || across ? 164 : 100,
     height = across ? 100 : 164;
   const name = fieldName(tile),
-    amount = tile.base ? fieldAmount(value) : "";
+    amount = tile.base ? fieldPrice(tile, value) : "";
   const names =
     !across && !corner && name.includes(" ") ? name.split(" ") : [name];
   if (classic) {
@@ -195,21 +195,6 @@ export function FieldTile({
           fill="#7a3324"
         >
           Miete {fieldAmount(rent)}
-        </text>
-      )}
-      {level > 0 && (
-        <text
-          className={level >= 5 ? "tile-hotel" : "tile-stars"}
-          x={width - 7}
-          y={across ? height - 8 : 29}
-          textAnchor="end"
-          fontSize={level >= 5 ? 26 : 15}
-          fill={level >= 5 ? "#e3a91c" : "#c48a12"}
-          stroke={level >= 5 ? "#5a3a00" : "none"}
-          strokeWidth="1.2"
-          aria-label={level >= 5 ? "Hotel" : `${level} Ausbaustufen`}
-        >
-          {level >= 5 ? "★" : "★".repeat(level)}
         </text>
       )}
     </svg>
